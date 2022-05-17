@@ -167,20 +167,30 @@ function sprite9_component:draw(ui_rect)
 end
 
 text_component = class()
-function text_component_new(text, color)
+function text_component_new(text, color, t, r, b, l)
 	return text_component.new {
-		text = text, color = color
+		text = text, color = color,
+		l = l or 0, r = r or 0, t = t or 0, b = b or 0
 	}
 end
 function text_component:draw(ui_rect)
 	local w = text_width(self.text)
 	local x,y = ui_rect:to_world(0,0)
-	print(self.text, x + (ui_rect.w - w) * .5, y + ui_rect.h * .5 - 3 + 1, self.color)
+	local t,r,b,l = self.t, self.r, self.b, self.l
+	print(self.text, 
+		x + l + (ui_rect.w - w - l - r) * .5, 
+		y + t + (ui_rect.h - 6 - t - b) * .5 + 1, self.color)
 end
 
-
-function button_rect(x,y,w,h)
+sprite_component = class()
+function sprite_component_new(id, x, y, w, h)
+	return sprite_component.new {
+		id = id, 
+		x = x or 0, y = y or 0,
+		w = w or 1, h = h or 1
+	}
 end
-
-function button_spr(id,x,y)
+function sprite_component:draw(ui_rect)
+	local x,y = ui_rect:to_world(self.x,self.y)
+	spr(self.id, x, y, self.w, self.h)
 end
