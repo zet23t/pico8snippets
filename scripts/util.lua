@@ -35,5 +35,5 @@ function text_width(s)
 			w = w + 4
 		end
 	end
-	return w
+	return w - 1
 end

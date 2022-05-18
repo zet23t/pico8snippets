@@ -1,4 +1,8 @@
---mx,my,but = stat(32),stat(33),stat(34) ~= 0
+-- creates a new object that inherits all members from t (without overwriting anything)
+function proxy_instance(t)
+	return setmetatable({},{__index = t})
+end
+
 local function class()
 	local t = {}
 	local mt = {__index = t}
@@ -10,11 +14,21 @@ end
 
 ui_rect = class()
 
+cursor_normal = {id = 1, offset_x = -1, offset_y = -1}
+cursor_resize = {id = 17, offset_x = -4, offset_y = -4}
+cursor = cursor_normal
+
+function ui_tk_set_cursor(c)
+	cursor = c
+end
+
 function ui_tk_draw(root)
 	local x,y = ui_tk_get_mouse()
 	root:draw()
-	spr(1,x,y)
+	clip()
+	spr(cursor.id,x+cursor.offset_x,y+cursor.offset_y)
 end
+
 local prev_mouse_down, mouse_down
 local was_mouse_pressed, was_mouse_released
 function ui_tk_update(root)
@@ -23,6 +37,8 @@ function ui_tk_update(root)
 	was_mouse_pressed = mouse_down and not prev_mouse_down
 	was_mouse_released = not mouse_down and prev_mouse_down
 	local hits = {}
+	root:recursive_trigger("layout_update_size")
+	root:recursive_trigger("layout_update")
 	root:collect_hits(x,y,hits)
 	root:update_flags(x,y,hits)
 	root:update(x,y)
@@ -95,6 +111,17 @@ local function flag_trigger(self, flag_name, mx, my)
 	end
 end
 
+function ui_rect:recursive_trigger(name, ...)
+	trigger(self.components, name, self, ...)
+	trigger(self.children, "recursive_trigger", name, ...)
+end
+
+function ui_rect:to_front()
+	if not self.parent then return end
+	del(self.parent.children,self)
+	add(self.parent.children,self)
+end
+
 function ui_rect:update(mx, my)
 	mx, my = mx - self.x, my - self.y
 	local mouse_over = self.flags.is_mouse_over
@@ -118,6 +145,7 @@ end
 function ui_rect:draw()
     trigger(self.components, "draw", self)
 	trigger(self.children, "draw")
+    trigger(self.components, "post_draw", self)
 end
 
 function ui_rect:to_world(x,y)
@@ -129,7 +157,7 @@ function ui_rect:to_world(x,y)
 end
 
 function ui_rect:add_component(cmp)
-    add(self.components, cmp)
+    return add(self.components, cmp)
 end
 
 function ui_rect:set_parent(p)
@@ -187,19 +215,23 @@ function sprite9_component:draw(ui_rect)
 end
 
 text_component = class()
-function text_component_new(text, color, t, r, b, l)
+function text_component_new(text, color, t, r, b, l, align_v, align_h)
 	return text_component.new {
 		text = text, color = color,
-		l = l or 0, r = r or 0, t = t or 0, b = b or 0
+		l = l or 0, r = r or 0, t = t or 0, b = b or 0,
+		align_v = align_v or 0.5,
+		align_h = align_h or 0.5
 	}
 end
 function text_component:draw(ui_rect)
 	local w = text_width(self.text)
 	local x,y = ui_rect:to_world(0,0)
 	local t,r,b,l = self.t, self.r, self.b, self.l
+	local maxpos_x = ui_rect.w - r - l
+	local maxpos_y = ui_rect.h - t - b
 	print(self.text, 
-		x + l + (ui_rect.w - w - l - r) * .5, 
-		y + t + (ui_rect.h - 6 - t - b) * .5 + 1, self.color)
+		x + l + self.align_v * maxpos_x - w * self.align_v, 
+		y + t + self.align_h * maxpos_y - 6 * self.align_h + 1, self.color)
 end
 
 sprite_component = class()
@@ -214,3 +246,50 @@ function sprite_component:draw(ui_rect)
 	local x,y = ui_rect:to_world(self.x,self.y)
 	spr(self.id, x, y, self.w, self.h)
 end
+
+drag_component = class()
+function drag_component_new()
+	return drag_component.new{}
+end
+function drag_component:is_pressed_down(ui_rect, mx, my)
+	ui_rect.x = mx - self.mx + ui_rect.x
+	ui_rect.y = my - self.my + ui_rect.y
+end
+function drag_component:was_pressed_down(ui_rect, mx, my)
+	self.mx, self.my = mx,my
+end
+
+clip_component = class()
+function clip_component_new(t,r,b,l)
+	return clip_component.new {t=t or 0,r=r or 0,b=b or 0,l=b or 0}
+end
+function clip_component:draw(ui_rect)
+	local x,y = ui_rect:to_world(self.l, self.t)
+	-- printc(x,y,ui_rect.w,ui_rect.h,#clip_stack)
+	clip_push(x, y,
+		ui_rect.w - self.l - self.r,
+		ui_rect.h - self.t - self.b, true)
+end
+function clip_component:post_draw() 
+	clip_pop()
+end
+
+clip_stack = {}
+function clip_push(x,y,w,h,clip_previous)
+	if #clip_stack > 0 and clip_previous then
+		local px1,py1,px2,py2 = unpack(clip_stack[#clip_stack])
+		local x1, x2 = clamp(px1, px2, x, x + w)
+		local y1, y2 = clamp(py1, py2, y, y + h)
+		x,y,w,h = x1, y1, x2-x1, y2-y1
+	end
+	add(clip_stack, {x,y,w,h})
+	clip(x,y,w,h)
+end
+
+function clip_pop()
+	if #clip_stack == 0 then
+		return clip()
+	end
+	clip(unpack(deli(clip_stack,#clip_stack)))
+end
+

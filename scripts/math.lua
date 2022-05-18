@@ -1,3 +1,17 @@
+function clamp(min,max,v,...)
+	v = (v > max and max) or (v < min and min) or v
+	if ... then
+		return v, clamp(min,max,...)
+	end
+	
+	return v
+end
+function lerp(t,a,b,...)
+	local x = t * b + a * (1 - t)
+	if ... then return x,lerp(t,...) end
+	return x
+end
+
 function round(x,...)
 	if not x then return end
 	return flr(x+.5),round(...)
