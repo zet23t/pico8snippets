@@ -36,6 +36,9 @@ function _init()
 	function s9:is_pressed_down()
 		self.sx = 24
 	end
+	function s9:was_released(rect)
+		self.sx = rect.flags.is_mouse_over and 32 or 16
+	end
 	btn:add_component(s9)
 
 	-- a text component for the caption
@@ -61,6 +64,9 @@ function _init()
 	end
 	function s9:was_pressed_down(ui_rect, mx, my)
 		self.mx, self.my = mx,my
+	end
+	function s9:was_released(rect)
+		self.sx = rect.flags.is_mouse_over and 32 or 16
 	end
 	-- adding the scale 9, text and sprite component
 	btn:add_component(s9)

@@ -22,7 +22,9 @@ function ui_tk_update(root)
 	mouse_down = b > 0
 	was_mouse_pressed = mouse_down and not prev_mouse_down
 	was_mouse_released = not mouse_down and prev_mouse_down
-	root:update_flags(x,y)
+	local hits = {}
+	root:collect_hits(x,y,hits)
+	root:update_flags(x,y,hits)
 	root:update(x,y)
 	prev_mouse_down = mouse_down
 end
@@ -44,11 +46,30 @@ function trigger(cmps, name,...)
     end
 end
 
-function ui_rect:update_flags(mx, my)
+function ui_rect:collect_hits(x, y, list)
+	x, y = x - self.x, y - self.y
+	local is_inside = x < self.w and y < self.h and x >= 0 and y >= 0
+	if is_inside then
+		add(list, self, 1)
+		list[self] = true
+	end
+
+	local has_handled = false
+	for i=#self.children, 1, -1 do
+		if self.children[i]:collect_hits(x, y, list) then
+			has_handled = true
+			break
+		end
+	end
+
+	return is_inside or has_handled
+end
+
+function ui_rect:update_flags(mx, my, hits)
 	mx, my = mx - self.x, my - self.y
-	local mouse_over = mx < self.w and my < self.h and mx >= 0 and my >= 0
+	local mouse_over = hits[self] and mx < self.w and my < self.h and mx >= 0 and my >= 0
 	local flags = self.flags
-	flags.was_mouse_over = flags.mouse_over
+	flags.was_mouse_over = flags.is_mouse_over
 	flags.is_mouse_over = mouse_over
 	flags.was_released = false
 	flags.was_triggered = false
@@ -65,19 +86,18 @@ function ui_rect:update_flags(mx, my)
 			flags.was_triggered = true
 		end
 	end
-	trigger(self.children, "update_flags", mx, my)
+	trigger(self.children, "update_flags", mx, my, hits)
 end
 
 local function flag_trigger(self, flag_name, mx, my)
 	if self.flags[flag_name] then
-		-- printh(flag_name)
 		trigger(self.components, flag_name, self, mx, my)
 	end
 end
 
 function ui_rect:update(mx, my)
 	mx, my = mx - self.x, my - self.y
-	local mouse_over = mx < self.w and my < self.h and mx >= 0 and my >= 0
+	local mouse_over = self.flags.is_mouse_over
 	local flags = self.flags
 	local was_mouse_over = flags.was_mouse_over
 	
@@ -85,11 +105,11 @@ function ui_rect:update(mx, my)
 		trigger(self.components, mouse_over and "mouse_enter" or "mouse_exit", mx, my)
 	end
 	
+	flag_trigger(self, "is_mouse_over", mx, my)
 	flag_trigger(self, "was_released", mx, my)
 	flag_trigger(self, "was_pressed_down", mx, my)
 	flag_trigger(self, "was_triggered", mx, my)
 	flag_trigger(self, "is_pressed_down", mx, my)
-	flag_trigger(self, "is_mouse_over", mx, my)
 
 	trigger(self.components, "update", self, mx, my)
 	trigger(self.children, "update", mx, my)
