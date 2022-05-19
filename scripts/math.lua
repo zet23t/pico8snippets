@@ -1,9 +1,16 @@
+function rect_contains(x1,y1,x2,y2,px,py,...)
+	local is_inside = px >= x1 and py >= y1 and px < x2 and py < y2
+	if ... then
+		return is_inside, rect_contains(x1,y1,x2,y2,...)
+	end
+	return is_inside
+end
 function clamp(min,max,v,...)
 	v = (v > max and max) or (v < min and min) or v
 	if ... then
 		return v, clamp(min,max,...)
 	end
-	
+
 	return v
 end
 function lerp(t,a,b,...)

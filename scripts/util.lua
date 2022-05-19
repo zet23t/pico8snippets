@@ -1,3 +1,18 @@
+local late_commands = {}
+function late_command(f,...)
+	add(late_commands,{f=f,...})
+end
+function exec_late_commands()
+	for i=1,#late_commands do
+		local cmd = late_commands[i]
+		cmd.f(unpack(cmd))
+	end
+	late_commands = {}
+end
+
+function debug_rect(x1,y1,x2,y2,c)
+	late_command(rect,x1,y1,x2,y2,c)
+end
 
 function concat(m, s,...)
 	s = tostr(s)

@@ -24,6 +24,8 @@ end
 
 function ui_tk_draw(root)
 	local x,y = ui_tk_get_mouse()
+	root:recursive_trigger("layout_update_size")
+	root:recursive_trigger("layout_update")
 	root:draw()
 	clip()
 	spr(cursor.id,x+cursor.offset_x,y+cursor.offset_y)
@@ -84,6 +86,15 @@ end
 function ui_rect:update_flags(mx, my, hits)
 	mx, my = mx - self.x, my - self.y
 	local mouse_over = hits[self] and mx < self.w and my < self.h and mx >= 0 and my >= 0
+	if mouse_over and #clip_stack > 0 then
+		local wmx,wmy = ui_tk_get_mouse()
+		local x1,y1 = self:to_world(0, 0)
+		local x2,y2 = self.w + x1, self.h + y1
+		local cx,cy,cw,ch = unpack(clip_stack[#clip_stack])
+		x1,x2 = clamp(cx, cx + cw, x1, x2)
+		y1,y2 = clamp(cy, cy + ch, y1, y2)
+		mouse_over = rect_contains(x1,y1,x2,y2,wmx,wmy)
+	end
 	local flags = self.flags
 	flags.was_mouse_over = flags.is_mouse_over
 	flags.is_mouse_over = mouse_over
@@ -102,7 +113,9 @@ function ui_rect:update_flags(mx, my, hits)
 			flags.was_triggered = true
 		end
 	end
+	trigger(self.components, "pre_draw", self)
 	trigger(self.children, "update_flags", mx, my, hits)
+	trigger(self.components, "post_draw")
 end
 
 local function flag_trigger(self, flag_name, mx, my)
@@ -143,6 +156,7 @@ function ui_rect:update(mx, my)
 end
 
 function ui_rect:draw()
+    trigger(self.components, "pre_draw", self)
     trigger(self.components, "draw", self)
 	trigger(self.children, "draw")
     trigger(self.components, "post_draw", self)
@@ -261,9 +275,9 @@ end
 
 clip_component = class()
 function clip_component_new(t,r,b,l)
-	return clip_component.new {t=t or 0,r=r or 0,b=b or 0,l=b or 0}
+	return clip_component.new {t=t or 0,r=r or 0,b=b or 0,l=l or 0}
 end
-function clip_component:draw(ui_rect)
+function clip_component:pre_draw(ui_rect)
 	local x,y = ui_rect:to_world(self.l, self.t)
 	-- printc(x,y,ui_rect.w,ui_rect.h,#clip_stack)
 	clip_push(x, y,
@@ -272,6 +286,17 @@ function clip_component:draw(ui_rect)
 end
 function clip_component:post_draw() 
 	clip_pop()
+end
+
+parent_size_matcher_component = class()
+function parent_size_matcher_component_new(t,r,b,l)
+	return parent_size_matcher_component.new {t=t or 0,r=r or 0,b=b or 0,l=l or 0}
+end
+function parent_size_matcher_component:layout_update(ui_rect)
+	ui_rect.x = self.l
+	ui_rect.y = self.t
+	ui_rect.w = ui_rect.parent.w - self.r - ui_rect.x
+	ui_rect.h = ui_rect.parent.h - self.b - ui_rect.y
 end
 
 clip_stack = {}
@@ -287,9 +312,11 @@ function clip_push(x,y,w,h,clip_previous)
 end
 
 function clip_pop()
+	deli(clip_stack,#clip_stack)
 	if #clip_stack == 0 then
 		return clip()
 	end
-	clip(unpack(deli(clip_stack,#clip_stack)))
+	-- printc(unpack(clip_stack[#clip_stack]))
+	clip(unpack(clip_stack[#clip_stack]))
 end
 
