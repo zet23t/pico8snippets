@@ -3,11 +3,12 @@ function proxy_instance(t)
 	return setmetatable({},{__index = t})
 end
 
-local function class()
+function class()
 	local t = {}
 	local mt = {__index = t}
-	function t.new(t)
-		return setmetatable(t or {}, mt)
+	function t.new(tt)
+		assert(tt~=t)
+		return setmetatable(tt or {}, mt)
 	end
 	return t
 end
@@ -129,10 +130,23 @@ function ui_rect:recursive_trigger(name, ...)
 	trigger(self.children, "recursive_trigger", name, ...)
 end
 
+function ui_rect:root()
+	return self.parent and self.parent:root() or self
+end
+
 function ui_rect:to_front()
 	if not self.parent then return end
 	del(self.parent.children,self)
 	add(self.parent.children,self)
+end
+
+function ui_rect:remove()
+	if self.parent then
+		late_command(function()
+			del(self.parent.children, self)
+			self.parent = nil
+		end)
+	end
 end
 
 function ui_rect:update(mx, my)
@@ -171,7 +185,9 @@ function ui_rect:to_world(x,y)
 end
 
 function ui_rect:add_component(cmp)
-    return add(self.components, cmp)
+    add(self.components, cmp)
+	if cmp.init then cmp:init(self) end
+	return cmp
 end
 
 function ui_rect:set_parent(p)
@@ -192,112 +208,7 @@ function ui_rect_new(x,y,w,h,parent)
 	return self
 end
 
-rectfill_component = class()
-function rectfill_component_new(fill, border)
-    return rectfill_component.new {fill=fill, border=border}
-end
-function rectfill_component:draw(ui_rect)
-	local x,y = ui_rect:to_world(0,0)
-	local x2,y2 = x + ui_rect.w - 1, y + ui_rect.h - 1
-	if self.fill then rectfill(x,y,x2,y2,self.fill) end
-	if self.border then rect(x,y,x2,y2,self.border) end
-end
-
-sprite9_component = class()
-function sprite9_component_new(sx, sy, sw, sh, t, r, b, l)
-	return sprite9_component.new {
-		sx = sx, sy = sy, sw = sw, sh = sh,
-		t=t,r=r,b=b,l=l
-	}
-end
-function sprite9_component:draw(ui_rect)
-	local x,y = ui_rect:to_world(0,0)
-	local w,h = ui_rect.w, ui_rect.h
-	local sx,sy,sw,sh = self.sx,self.sy,self.sw,self.sh
-	local t,r,b,l = self.t, self.r, self.b, self.l
-	sspr(sx,sy,l,t,x,y)
-	sspr(sx+l,sy,sw-l-r,t,x+r,y,w-r-l,t)
-	sspr(sx+sw-r,sy,r,t,x+w-r,y)
-	
-	sspr(sx,sy+t,l,sh-t-b,x,y+t,l,h-b-t)
-	sspr(sx+l,sy+t,sw-l-r,sh-t-b,x+l,y+t,w-l-r,h-b-t)
-	sspr(sx+sw-r,sy+t,r,sh-t-b,x+w-r,y+t,r,h-b-t)
-
-	sspr(sx,sy+sh-b,l,b,x,y+h-b)
-	sspr(sx+l,sy+sh-b,sw-l-r,b,x+r,y+h-b,w-r-l,b)
-	sspr(sx+sw-r,sy+sh-b,r,b,x+w-r,y+h-b)
-end
-
-text_component = class()
-function text_component_new(text, color, t, r, b, l, align_v, align_h)
-	return text_component.new {
-		text = text, color = color,
-		l = l or 0, r = r or 0, t = t or 0, b = b or 0,
-		align_v = align_v or 0.5,
-		align_h = align_h or 0.5
-	}
-end
-function text_component:draw(ui_rect)
-	local w = text_width(self.text)
-	local x,y = ui_rect:to_world(0,0)
-	local t,r,b,l = self.t, self.r, self.b, self.l
-	local maxpos_x = ui_rect.w - r - l
-	local maxpos_y = ui_rect.h - t - b
-	print(self.text, 
-		x + l + self.align_v * maxpos_x - w * self.align_v, 
-		y + t + self.align_h * maxpos_y - 6 * self.align_h + 1, self.color)
-end
-
-sprite_component = class()
-function sprite_component_new(id, x, y, w, h)
-	return sprite_component.new {
-		id = id, 
-		x = x or 0, y = y or 0,
-		w = w or 1, h = h or 1
-	}
-end
-function sprite_component:draw(ui_rect)
-	local x,y = ui_rect:to_world(self.x,self.y)
-	spr(self.id, x, y, self.w, self.h)
-end
-
-drag_component = class()
-function drag_component_new()
-	return drag_component.new{}
-end
-function drag_component:is_pressed_down(ui_rect, mx, my)
-	ui_rect.x = mx - self.mx + ui_rect.x
-	ui_rect.y = my - self.my + ui_rect.y
-end
-function drag_component:was_pressed_down(ui_rect, mx, my)
-	self.mx, self.my = mx,my
-end
-
-clip_component = class()
-function clip_component_new(t,r,b,l)
-	return clip_component.new {t=t or 0,r=r or 0,b=b or 0,l=l or 0}
-end
-function clip_component:pre_draw(ui_rect)
-	local x,y = ui_rect:to_world(self.l, self.t)
-	-- printc(x,y,ui_rect.w,ui_rect.h,#clip_stack)
-	clip_push(x, y,
-		ui_rect.w - self.l - self.r,
-		ui_rect.h - self.t - self.b, true)
-end
-function clip_component:post_draw() 
-	clip_pop()
-end
-
-parent_size_matcher_component = class()
-function parent_size_matcher_component_new(t,r,b,l)
-	return parent_size_matcher_component.new {t=t or 0,r=r or 0,b=b or 0,l=l or 0}
-end
-function parent_size_matcher_component:layout_update(ui_rect)
-	ui_rect.x = self.l
-	ui_rect.y = self.t
-	ui_rect.w = ui_rect.parent.w - self.r - ui_rect.x
-	ui_rect.h = ui_rect.parent.h - self.b - ui_rect.y
-end
+---
 
 clip_stack = {}
 function clip_push(x,y,w,h,clip_previous)

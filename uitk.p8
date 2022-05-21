@@ -2,6 +2,7 @@ pico-8 cartridge // http://www.pico-8.com
 version 36
 __lua__
 #include scripts/uitk.lua
+#include scripts/uitk-components.lua
 #include scripts/util.lua
 #include scripts/math.lua
 
@@ -39,7 +40,7 @@ function _init()
 		ui_tk_set_cursor(cursor_normal)
 	end
 	function resizer_icon:layout_update(ui_rect)
-		ui_rect:to_front()
+		--ui_rect:to_front()
 		ui_rect.x = ui_rect.parent.w - ui_rect.w - 2
 		ui_rect.y = ui_rect.parent.h - ui_rect.h - 2
 	end
@@ -61,7 +62,28 @@ function _init()
 	local window_content = ui_rect_new(2,10,100,10,ui_root)
 	-- window_content:add_component(sprite_component_new(23))
 	window_content:add_component(sprite9_component_new(72,0,8,8,3,3,3,3))
-	window_content:add_component(parent_size_matcher_component_new(10,2,10,2))
+	window_content:add_component(parent_size_matcher_component_new(18,2,10,2))
+	ui_root:add_component(menubar_component_new {
+		file_1 = {
+			open_1_5 = {
+				get_menu = function(self)
+					local m = {}
+					for i,v in ipairs(ls()) do
+						m[v.."_"..i] = function() load(v,"return to uitk") end
+					end
+					return m
+				end,
+			},
+			save_2_6 = function() printh("save") end,
+			close_3 = function() printh("Close") end,
+			_4 = true,
+			quit_5 = function() printh("Quit") end,
+		},
+		edit_2 = {
+			settings_1 = function() printh("Settings") end
+		},
+		about_3 = function()printc("About")end
+	})
 
 	local window_content_clipper = ui_rect_new(0,0,0,0,window_content)
 	window_content_clipper:add_component(clip_component_new(1,1,1,1))
