@@ -28,7 +28,13 @@ function p3sort(x1,y1,x2,y2,x3,y3)
 end
 
 
-function tcontains(px,py,x1,y1,x2,y2,x3,y3)
+function tcontains(line_margin,px,py,x1,y1,x2,y2,x3,y3)
+	if line_margin and line_margin > 0 and 
+		min_all(line_distance(px,py,x1,y1,x2,y2,x1,y1,x3,y3,x2,y2,x3,y3)) <= line_margin 
+	then
+		return true
+	end
+	
 	x1,y1,x2,y2,x3,y3 = p3sort(round(x1,y1,x2,y2,x3,y3))
 	if py <= y1 or py >= y3 or (px <= x1 and px <= x2 and px <= x3) or (px >= x1 and px >= x2 and px >= x3) then
 		return false
@@ -83,6 +89,8 @@ function tfill(x1,y1,x2,y2,x3,y3,col,linecol,m)
 		line(x2,y2,x3,y3,linecol)
 	end
 end
+
+dsget = dsget or sget
 
 function sgets(x,y,...)
 	if x then 

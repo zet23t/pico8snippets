@@ -32,6 +32,45 @@ function ui_tk_draw(root)
 	spr(cursor.id,x+cursor.offset_x,y+cursor.offset_y)
 end
 
+function trigger(cmps, name,...)
+	for i=1,#cmps do
+		local c = cmps[i]
+        local f = c[name]
+        if f then
+            f(c, ...)
+        end
+    end
+end
+
+local queued_updates = {}
+local function queue_call(name, f, ...)
+	local list = queued_updates[name] or {}
+	add(list,{f=f,...})
+	queued_updates[name] = list
+end
+local function flag_trigger(self, flag_name, mx, my)
+	if self.flags[flag_name] then
+		queue_call(flag_name,trigger,self.components, flag_name, self, mx, my)
+	end
+end
+local function trigger_queued(cmps, name, ...)
+	for i=1,#cmps do
+		local c = cmps[i]
+        local f = c[name]
+        if f then
+			queue_call(name, f, c, ...)
+        end
+    end
+end
+local function call_all(name)
+	local list = queued_updates[name]
+	if list then
+		for i=1,#list do
+			list[i].f(unpack(list[i]))
+		end
+	end
+	return call_all
+end
 local prev_mouse_down, mouse_down
 local was_mouse_pressed, was_mouse_released
 function ui_tk_update(root)
@@ -44,7 +83,19 @@ function ui_tk_update(root)
 	root:recursive_trigger("layout_update")
 	root:collect_hits(x,y,hits)
 	root:update_flags(x,y,hits)
+	
+	queued_updates = {}
+	-- the update call is collecting information which calls need to be done
 	root:update(x,y)
+
+	-- it is important to execute all callbacks orderly one by one after another
+	call_all 
+		"mouse_exit" "mouse_enter"
+		"is_mouse_over" 
+		"was_released" "was_pressed_down" "was_triggered"
+		"is_pressed_down"
+		"update"
+	
 	prev_mouse_down = mouse_down
 end
 function ui_tk_enable_mouse()
@@ -55,15 +106,6 @@ function ui_tk_get_mouse()
     return stat(32),stat(33),stat(34)
 end
 
-function trigger(cmps, name,...)
-	for i=1,#cmps do
-		local c = cmps[i]
-        local f = c[name]
-        if f then
-            f(c, ...)
-        end
-    end
-end
 
 function ui_rect:collect_hits(x, y, list)
 	x, y = x - self.x, y - self.y
@@ -119,12 +161,6 @@ function ui_rect:update_flags(mx, my, hits)
 	trigger(self.components, "post_draw")
 end
 
-local function flag_trigger(self, flag_name, mx, my)
-	if self.flags[flag_name] then
-		trigger(self.components, flag_name, self, mx, my)
-	end
-end
-
 function ui_rect:recursive_trigger(name, ...)
 	trigger(self.components, name, self, ...)
 	trigger(self.children, "recursive_trigger", name, ...)
@@ -134,11 +170,17 @@ function ui_rect:root()
 	return self.parent and self.parent:root() or self
 end
 
-function ui_rect:to_front()
+
+function ui_rect:to_pos(n)
 	if not self.parent then return end
 	del(self.parent.children,self)
-	add(self.parent.children,self)
+	add(self.parent.children,self,n)
 end
+
+function ui_rect:to_back()
+	self:to_pos(1)
+end
+ui_rect.to_front = ui_rect.to_pos
 
 function ui_rect:remove()
 	if self.parent then
@@ -156,7 +198,7 @@ function ui_rect:update(mx, my)
 	local was_mouse_over = flags.was_mouse_over
 	
 	if mouse_over ~= was_mouse_over then
-		trigger(self.components, mouse_over and "mouse_enter" or "mouse_exit", mx, my)
+		trigger_queued(self.components, mouse_over and "mouse_enter" or "mouse_exit", mx, my)
 	end
 	
 	flag_trigger(self, "is_mouse_over", mx, my)
@@ -165,7 +207,7 @@ function ui_rect:update(mx, my)
 	flag_trigger(self, "was_triggered", mx, my)
 	flag_trigger(self, "is_pressed_down", mx, my)
 
-	trigger(self.components, "update", self, mx, my)
+	trigger_queued(self.components, "update", self, mx, my)
 	trigger(self.children, "update", mx, my)
 end
 

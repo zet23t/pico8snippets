@@ -26,7 +26,7 @@ function sprite9_component:draw(ui_rect)
 	local sx,sy,sw,sh = self.sx,self.sy,self.sw,self.sh
 	local t,r,b,l = self.t, self.r, self.b, self.l
 	sspr(sx,sy,l,t,x,y)
-	sspr(sx+l,sy,sw-l-r,t,x+r,y,w-r-l,t)
+	sspr(sx+l,sy,sw-l-r,t,x+l,y,w-r-l,t)
 	sspr(sx+sw-r,sy,r,t,x+w-r,y)
 	
 	sspr(sx,sy+t,l,sh-t-b,x,y+t,l,h-b-t)
@@ -34,7 +34,7 @@ function sprite9_component:draw(ui_rect)
 	sspr(sx+sw-r,sy+t,r,sh-t-b,x+w-r,y+t,r,h-b-t)
 
 	sspr(sx,sy+sh-b,l,b,x,y+h-b)
-	sspr(sx+l,sy+sh-b,sw-l-r,b,x+r,y+h-b,w-r-l,b)
+	sspr(sx+l,sy+sh-b,sw-l-r,b,x+l,y+h-b,w-r-l,b)
 	sspr(sx+sw-r,sy+sh-b,r,b,x+w-r,y+h-b)
 end
 
@@ -50,14 +50,32 @@ function text_component_new(text, color, t, r, b, l, align_v, align_h)
 	}
 end
 function text_component:draw(ui_rect)
-	local w = text_width(self.text)
 	local x,y = ui_rect:to_world(0,0)
-	local t,r,b,l = self.t, self.r, self.b, self.l
-	local maxpos_x = ui_rect.w - r - l
-	local maxpos_y = ui_rect.h - t - b
+	if not self.cached_x or self.cached_text ~= self.text or 
+		self.cached_align_h ~= self.align_h or
+		self.cached_align_v ~= self.align_v or
+		self.cached_t ~= self.t or 
+		self.cached_b ~= self.b or 
+		self.cached_l ~= self.l or 
+		self.cached_r ~= self.r 
+	then
+		local w = text_width(self.text)
+		local t,r,b,l = self.t, self.r, self.b, self.l
+		local maxpos_x = ui_rect.w - r - l
+		local maxpos_y = ui_rect.h - t - b
+		self.cached_x = l + self.align_v * maxpos_x - w * self.align_v
+		self.cached_y = t + self.align_h * maxpos_y - 6 * self.align_h + 1
+		self.cached_text = self.text
+		self.cached_align_h = self.align_h
+		self.cached_align_v = self.align_v
+		self.cached_t = self.t 
+		self.cached_b = self.b 
+		self.cached_l = self.l 
+		self.cached_r = self.r 
+	end
 	print(self.text, 
-		x + l + self.align_v * maxpos_x - w * self.align_v, 
-		y + t + self.align_h * maxpos_y - 6 * self.align_h + 1, self.color)
+		x + self.cached_x, 
+		y + self.cached_y, self.color)
 end
 
 ------------------------------------------------------------
@@ -73,6 +91,35 @@ end
 function sprite_component:draw(ui_rect)
 	local x,y = ui_rect:to_world(self.x,self.y)
 	spr(self.id, x, y, self.w, self.h)
+end
+
+------------------------------------------------------------
+
+mesh_component = class()
+function mesh_component_new(mesh_x, mesh_y, matrix, pivot_x, pivot_y, lines)
+	return mesh_component.new {
+		mesh_x = mesh_x,
+		mesh_y = mesh_y,
+		lines = lines or 8,
+		pivot_x = pivot_x or 0,
+		pivot_y = pivot_y or 0,
+		matrix = matrix or m33_ident()
+	}
+end
+function mesh_component:draw(ui_rect)
+	local x,y = ui_rect:to_world(0,0)
+	local m = self.matrix
+	m[5] = m[5] + x
+	m[6] = m[6] + y
+	
+	draw_smesh(m,self.mesh_x, self.mesh_y, self.pivot_x, self.pivot_y, self.lines)
+
+	m[5] = m[5] - x
+	m[6] = m[6] - y
+end
+function mesh_component:set_mesh(mesh_x, mesh_y, lines)
+	self.mesh_x, self.mesh_y, self.lines = mesh_x or self.mesh_x,
+		mesh_y or self.mesh_y, lines or self.lines
 end
 
 ------------------------------------------------------------
@@ -208,14 +255,20 @@ function menu_component:init(ui_rect)
 			entry:add_component(text_component_new(k,0,0,0,0,11,0))
 			local event_handler = entry:add_component{
 				was_triggered = function(self,ui_rect_e,mx,my)
-					if type(v) == "function" then
-						v(ui_rect_e,mx,my,k)
+					local fn = type(v) == "function" and v or v.func
+					if fn then
+						fn(ui_rect_e,mx,my,k)
 						ui_rect:remove()
 					end
 				end,
+				draw = function(self,ui_rect_e,mx,my)
+					if type(v) == "table" and v.draw then
+						v:draw(ui_rect_e,mx,my)
+					end
+				end
 			}
 
-			if type(v) == "table" then
+			if type(v) == "table" and not v.no_sub_menu then
 				local submenu,submenu_c
 				function event_handler:draw(ui_rect)
 					local x,y = ui_rect:to_world(ui_rect.w-5,1)
@@ -241,6 +294,10 @@ function menu_component:init(ui_rect)
 	end
 	ui_rect.w = maxw + 2
 	ui_rect.h = y + 1
+	--local x,y = ui_rect:to_world(0,0)
+	if ui_rect.x+ui_rect.w > 128 then
+		ui_rect.x = 128 - ui_rect.w
+	end
 end
 function menu_component:show(change)
 	self.show_count = self.show_count + change

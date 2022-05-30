@@ -23,3 +23,10 @@ function m33_ang(a,tx,ty,sx,sy)
 	local c,s = cos(a) * sx,sin(a) * sy
 	return m33new{c,s,-s,c,tx or 0,ty or 0}
 end
+
+function m33_offsetted(m,x,y)
+	local cp = m33new {unpack(m)}
+	cp[5] = cp[5] + x
+	cp[6] = cp[6] + y
+	return cp
+end

@@ -10,7 +10,6 @@ function clamp(min,max,v,...)
 	if ... then
 		return v, clamp(min,max,...)
 	end
-
 	return v
 end
 function lerp(t,a,b,...)
@@ -19,6 +18,41 @@ function lerp(t,a,b,...)
 	return x
 end
 
+function xys_add(addx,addy,x,y,...)
+	if x then
+		return addx+x,addy+y,xys_add(addx,addy,...)
+	end
+end
+
+function min_all(a,...)
+	return ... and min(a,min_all(...)) or a
+end
+
+function line_distance(px,py,x1,y1,x2,y2,...)
+	if not x1 then return end
+	if x1 == x2 and y1 == y2 then
+		return length(x1-px,y1-py), line_distance(px,py,...)
+	end
+	local dx,dy,d = normalize(x2-x1,y2-y1)
+	local posOnLine = dx*(px-x1) + dy*(py-y1)
+	local pd = posOnLine < 0 and length(px-x1,py-y1) or posOnLine > d and length(px-x2,py-y2)
+	return pd or abs( dy*(px-x1) - dx*(py-y1)), line_distance(px,py,...)
+end
+
+function multiply_all(m, x,...)
+	if x then
+		return x * m, multiply_all(m,...)
+	end
+end
+
+function ceil_all(x,...)
+	if not x then return end
+	return ceil(x),ceil_all(...)
+end
+function flr_all(x,...)
+	if not x then return end
+	return flr(x),flr_all(...)
+end
 function round(x,...)
 	if not x then return end
 	return flr(x+.5),round(...)
