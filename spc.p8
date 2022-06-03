@@ -1,6 +1,10 @@
 pico-8 cartridge // http://www.pico-8.com
 version 36
 __lua__
+#include scripts/affine2d.lua
+#include scripts/math.lua
+#include scripts/mesh.lua
+#include scripts/util.lua
 unit_t = 0.0002
 
 local star_dep = {1,5,6,7}
@@ -124,17 +128,17 @@ function _draw()
 	draw_starfield(sx*.05,sy*.05)
 	camera(-64,-64)
 	local m = m33_ang(ang,0,0,scale,scale)
-	tfill(lx,ly,rx,ry,fx,fy,12,1,m)
+	tfill(12,1,m,lx,ly,rx,ry,fx,fy)
 	local f = .7
-	tfill(lx*f,ly,rx*f,ry,fx*f,fy*f,7,10,m)
+	tfill(7,10,m,lx*f,ly,rx*f,ry,fx*f,fy*f)
 	bodies_draw(simtime,sx,sy,scale)
 	local r = 58
 	circ(0,0,r,3)
 	local function ctri(s,c,w,fcol,col)
 		camera(s * r - 64, c * r-64)
-		tfill(0,0,
+		tfill(fcol,col,nil, 0,0,
 			s * 5 + c * w,c * 5 - s * w,
-			s * 5 - c * w,c * 5 + s * w, fcol,col)
+			s * 5 - c * w,c * 5 + s * w)
 		camera(-64,-64)
 	end
 	ctri(s,c,3,11,3)
@@ -178,7 +182,7 @@ function _draw()
 		return dot(ax,ay,bx,by)^2
 	end
 	local err = 0
-	for i=1,#futurecalc < 200 and 200 or 50 do
+	for i=1,#futurecalc < 200 and 100 or 50 do
 		simsx,simsy,simvx,simvy,st = bodies_calc_gravity(st, simsx,simsy,simvx,simvy,1)
 		local last = futurecalc[#futurecalc]
 		local prev = futurecalc[#futurecalc-1]
@@ -194,20 +198,20 @@ function _draw()
 	
 	drawpath(futurecalc,2)
 --	print(#futurecalc,10,18,7)	
-	draw_smesh(m,0,8,-7,-7,1)
+	draw_smesh(m,0,8,-7,-7,8)
 	
 	fillp()
 	camera()
 
 	print("mode (❎): ".. control_mode_name[control_mode + 1], 0,0,3)
 	
-	print("v="..round(length(vx,vy),2)..
+	print("v="..round_s(length(vx,vy),2)..
 		
-				" vx:"..round(vx,2).." vy:"..round(vy,2)..
-				" x:"..round(sx,2).." y:"..round(sy,2), 0,123,3)
+				" vx:"..round_s(vx,2).." vy:"..round_s(vy,2)..
+				" x:"..round_s(sx,2).." y:"..round_s(sy,2), 0,123,3)
 end
 
-function round(n,decs)
+function round_s(n,decs)
 	local m = 10^decs
 	return flr(n*m+.5)/m
 end
@@ -265,172 +269,10 @@ function _update()
 	end
 end
 -->8
-local m33 = {}
-local m33_mt = {__index = m33}
 
-local function m33new(t)
-	return setmetatable(t,m33_mt)
-end
-
-function m33:mulxy(x,y,...)
-	if not x then return end
-	return
-		x * self[1] + y * self[2] + self[5],
-		x * self[3] + y * self[4] + self[6],
-		self:mulxy(...)
-end
-
-function m33_ident()
-	return m33new{1,0,0,1,0,0}
-end
-
-function m33_ang(a,tx,ty,sx,sy)
-	sx = sx or 1
-	sy = sy or sx or 1
-	local c,s = cos(a) * sx,sin(a) * sy
-	return m33new{c,s,-s,c,tx or 0,ty or 0}
-end
-
-
-
-local function sides(x,...)
-	if not x then return end
-	if x < 0 then return -1,sides(...)
-	elseif x >= 128 then return 1,sides(...)
-	end
-	return 0,sides(...)
-end
-
-local function is_outside(x1,x2,x3)
-	local sx1,sx2,sx3 = sides(x1,x2,x3)
-	local sy1,sy2,sy3 = sides(y1,y2,y3)
-	if sx1 == sx2 and sx2 == sx3 and sx1~=0 then
-		return
-	end
-end
-
-local function round(x,...)
-	if not x then return end
-	return flr(x+.5),round(...)
-end
-
-function tfill(x1,y1,x2,y2,x3,y3,col,linecol,m)
-	if m then
-		x1,y1,x2,y2,x3,y3 = m:mulxy(x1,y1,x2,y2,x3,y3)
-	
-	end
-	x1,y1,x2,y2,x3,y3=round(x1,y1,x2,y2,x3,y3)
-	if is_outside(x1,x2,x3) or is_outside(y1,y2,y3) then
-		return
-	end
-	 
- if y2 < y1 and y2 < y3 then
- 	x1,y1,x2,y2 = x2,y2,x1,y1
- elseif y3 < y1 then
-  x1,y1,x3,y3 = x3,y3,x1,y1
- end
- if y2 > y3 then
-  x3,y3,x2,y2 = x2,y2,x3,y3
- end
- local dx2,dy2 = x2-x1,y2-y1
- local dx3,dy3 = x3-x1,y3-y1
- 
- local x3x1,x2x1 = x3 - x1, x2 - x1
- local y3y1,y2y1 = y3 - y1, y2 - y1
- local x4 = x3x1 / y3y1 * y2y1 + x1
- local va,vb = x3x1 / y3y1, x2x1 / y2y1
- for y=y1,y2 do
-	 local ax = va * (y-y1) + x1
- 	local bx = vb * (y-y1) + x1
-		rectfill(round(ax),y,round(bx),y,col)
- end
- local x3x4,x3x2 = x3 - x4,x3-x2
- local y3y2 = y3 - y2
- va,vb = x3x4 / y3y2, x3x2 / y3y2
- for y=y2,y3 do
-	 local ax = va * (y-y2) + x4
- 	local bx = vb * (y-y2) + x2
-		rectfill(round(ax),y,round(bx),y,col)
- end
- 
- if linecol then
-		line(x1,y1,x2,y2,linecol)
-		line(x1,y1,x3,y3,linecol)
-		line(x2,y2,x3,y3,linecol)
-	end
-end
-
-function sgets(x,y,...)
-	if x then 
-		return sget(x,y),sgets(...) 
-	end
-end
-
-local function lerp(a,...)
-	local b = 1 - a
-	local function l(x1,x2,...)
-		if not x1 then return end
-		return a * x2 + b * x1,l(...)
-	end
-	return l(...)
-end
-
-function draw_smesh(m33,sx,sy,ox,oy,n,sx2,sy2,blend)
-	ox = ox or 0
-	oy = oy or 0
-	for y=sy,sy+7 do
-	 local x1,y1 = sgets(sx+0,y,sx+1,y)
-	 local x2,y2 = sgets(sx+2,y,sx+3,y)
-	 local x3,y3 = sgets(sx+4,y,sx+5,y)
-	 if x1 == y1 and x1 == x2 
-	 	and x1 == y2 and x1 == x3 
-	 	and x1 == y3 and x1 == 0 
-	 then
-	 	break
-	 end
-	 local co,lc = sgets(sx+6,y,sx+7,y)
-
-		if blend then	 
-		 local x1b,y1b = sgets(sx2+0,y,sx2+1,y)
-		 local x2b,y2b = sgets(sx2+2,y,sx2+3,y)
-		 local x3b,y3b = sgets(sx2+4,y,sx2+5,y)
-		 x1,y1,x2,y2,x3,y3 = lerp(blend,x1,x1b,y1,y1b,x2,x2b,y2,y2b,x3,x3b,y3,y3b)
-	 end
-
-	 x1,y1=m33:mulxy(x1+ox,y1+oy)
-	 x2,y2=m33:mulxy(x2+ox,y2+oy)
-	 x3,y3=m33:mulxy(x3+ox,y3+oy)
-
-	 tfill(x1,y1,x2,y2,x3,y3,co,lc)
-	end
-end
 -->8
 
 -->8
-function dot(x1,y1,x2,y2)
-	return x1*x2 + y1*y2
-end
-
-function normalize(x,y)
-	local m = max(abs(x),abs(y))
-	if m == 0 then return x,y,0 end
-	x,y = x / m, y / m
-	local d = (x*x+y*y)^.5
-	return x / d, y / d, d * m
-end
-
-function length(dx,dy)
-	local d = max(abs(dx),abs(dy))
- local n = min(abs(dx),abs(dy)) / d
- return sqrt(n*n + 1) * d
-end
-
-function distance(x1,y1,x2,y2)
-	local dx,dy = x1-x2,y1-y2
-	local d = max(abs(dx),abs(dy))
- local n = min(abs(dx),abs(dy)) / d
- return sqrt(n*n + 1) * d
-end
 __gfx__
 1ddd2f55000000007686676200000000000000000000000000006000000600000000000000000000000000000000000000000000000000000000000000000000
 2fcfdd55000660006786976200000000000000000000000000006666666600000000000000000000000000000000000000000000000000000000000000000000

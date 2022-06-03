@@ -1,21 +1,20 @@
 function rect_contains(x1,y1,x2,y2,px,py,...)
-	local is_inside = px >= x1 and py >= y1 and px < x2 and py < y2
-	if ... then
+	if px then
+		local is_inside = px >= x1 and py >= y1 and px < x2 and py < y2
 		return is_inside, rect_contains(x1,y1,x2,y2,...)
 	end
-	return is_inside
 end
 function clamp(min,max,v,...)
-	v = (v > max and max) or (v < min and min) or v
-	if ... then
+	if v then 
+		v = (v > max and max) or (v < min and min) or v
 		return v, clamp(min,max,...)
 	end
-	return v
 end
 function lerp(t,a,b,...)
-	local x = t * b + a * (1 - t)
-	if ... then return x,lerp(t,...) end
-	return x
+	if a then
+		local x = t * b + a * (1 - t)
+		return x,lerp(t,...) 
+	end
 end
 
 function xys_add(addx,addy,x,y,...)
@@ -46,16 +45,13 @@ function multiply_all(m, x,...)
 end
 
 function ceil_all(x,...)
-	if not x then return end
-	return ceil(x),ceil_all(...)
+	if (x) return ceil(x),ceil_all(...)
 end
 function flr_all(x,...)
-	if not x then return end
-	return flr(x),flr_all(...)
+	if (x) return flr(x),flr_all(...)
 end
 function round(x,...)
-	if not x then return end
-	return flr(x+.5),round(...)
+	if (x) return flr(x+.5),round(...)
 end
 
 function nabs(x,...)
@@ -69,7 +65,8 @@ end
 function normalize(x,y)
 	local m = max(nabs(x, y))
 	if m == 0 then return x,y,0 end
-	x,y = x / m, y / m
+	x /= m
+	y /= m
 	local d = (x*x+y*y)^.5
 	return x / d, y / d, d * m
 end

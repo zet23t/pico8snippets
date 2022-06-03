@@ -1,6 +1,8 @@
 -- creates a new object that inherits all members from t (without overwriting anything)
-function proxy_instance(t)
-	return setmetatable({},{__index = t})
+function proxy_instance(t,...)
+	if t then
+		return setmetatable({},{__index = t}),proxy_instance(...)
+	end
 end
 
 function class()
@@ -26,8 +28,8 @@ end
 function ui_tk_draw(root)
 	local x,y = ui_tk_get_mouse()
 	root:recursive_trigger("layout_update_size")
-	root:recursive_trigger("layout_update")
-	root:draw()
+		:recursive_trigger("layout_update")
+		:draw()
 	clip()
 	spr(cursor.id,x+cursor.offset_x,y+cursor.offset_y)
 end
@@ -40,6 +42,7 @@ function trigger(cmps, name,...)
             f(c, ...)
         end
     end
+	return trigger
 end
 
 local queued_updates = {}
@@ -52,6 +55,7 @@ local function flag_trigger(self, flag_name, mx, my)
 	if self.flags[flag_name] then
 		queue_call(flag_name,trigger,self.components, flag_name, self, mx, my)
 	end
+	return flag_trigger
 end
 local function trigger_queued(cmps, name, ...)
 	for i=1,#cmps do
@@ -80,8 +84,8 @@ function ui_tk_update(root)
 	was_mouse_released = not mouse_down and prev_mouse_down
 	local hits = {}
 	root:recursive_trigger("layout_update_size")
-	root:recursive_trigger("layout_update")
-	root:collect_hits(x,y,hits)
+		:recursive_trigger("layout_update")
+		:collect_hits(x,y,hits)
 	root:update_flags(x,y,hits)
 	
 	queued_updates = {}
@@ -108,8 +112,10 @@ end
 
 
 function ui_rect:collect_hits(x, y, list)
-	x, y = x - self.x, y - self.y
-	local is_inside = x < self.w and y < self.h and x >= 0 and y >= 0
+	x -= self.x
+	y -= self.y
+
+	local is_inside = rect_contains(0,0,self.w,self.h,x,y)
 	if is_inside then
 		add(list, self, 1)
 		list[self] = true
@@ -141,9 +147,7 @@ function ui_rect:update_flags(mx, my, hits)
 	local flags = self.flags
 	flags.was_mouse_over = flags.is_mouse_over
 	flags.is_mouse_over = mouse_over
-	flags.was_released = false
-	flags.was_triggered = false
-	flags.was_pressed_down = false
+	flags.was_released,flags.was_triggered,flags.was_pressed_down = false
 	local was_mouse_over = flags.was_mouse_over
 	if was_mouse_pressed and mouse_over then
 		flags.is_pressed_down = true
@@ -157,19 +161,19 @@ function ui_rect:update_flags(mx, my, hits)
 		end
 	end
 	trigger(self.components, "pre_draw", self)
-	trigger(self.children, "update_flags", mx, my, hits)
-	trigger(self.components, "post_draw")
+		(self.children, "update_flags", mx, my, hits)
+		(self.components, "post_draw")
 end
 
 function ui_rect:recursive_trigger(name, ...)
 	trigger(self.components, name, self, ...)
-	trigger(self.children, "recursive_trigger", name, ...)
+		(self.children, "recursive_trigger", name, ...)
+	return self
 end
 
 function ui_rect:root()
 	return self.parent and self.parent:root() or self
 end
-
 
 function ui_rect:to_pos(n)
 	if not self.parent then return end
@@ -183,18 +187,18 @@ end
 ui_rect.to_front = ui_rect.to_pos
 
 function ui_rect:remove()
-	if self.parent then
-		late_command(function()
+	late_command(function()
+		if self.parent then
 			del(self.parent.children, self)
 			self.parent = nil
-		end)
-	end
+		end
+	end)
 end
 
 function ui_rect:update(mx, my)
 	mx, my = mx - self.x, my - self.y
-	local mouse_over = self.flags.is_mouse_over
 	local flags = self.flags
+	local mouse_over = flags.is_mouse_over
 	local was_mouse_over = flags.was_mouse_over
 	
 	if mouse_over ~= was_mouse_over then
@@ -202,10 +206,10 @@ function ui_rect:update(mx, my)
 	end
 	
 	flag_trigger(self, "is_mouse_over", mx, my)
-	flag_trigger(self, "was_released", mx, my)
-	flag_trigger(self, "was_pressed_down", mx, my)
-	flag_trigger(self, "was_triggered", mx, my)
-	flag_trigger(self, "is_pressed_down", mx, my)
+		(self, "was_released", mx, my)
+		(self, "was_pressed_down", mx, my)
+		(self, "was_triggered", mx, my)
+		(self, "is_pressed_down", mx, my)
 
 	trigger_queued(self.components, "update", self, mx, my)
 	trigger(self.children, "update", mx, my)
@@ -213,23 +217,30 @@ end
 
 function ui_rect:draw()
     trigger(self.components, "pre_draw", self)
-    trigger(self.components, "draw", self)
-	trigger(self.children, "draw")
-    trigger(self.components, "post_draw", self)
+		(self.components, "draw", self)
+		(self.children, "draw")
+		(self.components, "post_draw", self)
 end
 
 function ui_rect:to_world(x,y)
-    x,y = self.x + x, self.y + y
+    x,y = self.x + (x or 0), self.y + (y or 0)
     if self.parent then
         return self.parent:to_world(x,y)
     end
     return x,y
 end
 
-function ui_rect:add_component(cmp)
-    add(self.components, cmp)
-	if cmp.init then cmp:init(self) end
-	return cmp
+function ui_rect:add_component_proxy(cmp,...)
+	if cmp then
+		return self:add_component(proxy_instance(cmp)), self:add_component_proxy(...)
+	end
+end
+function ui_rect:add_component(cmp,...)
+	if cmp then
+		add(self.components, cmp)
+		if cmp.init then cmp:init(self) end
+		return cmp, self:add_component(...)
+	end
 end
 
 function ui_rect:set_parent(p)
@@ -237,7 +248,19 @@ function ui_rect:set_parent(p)
 	add(p.children,self)
 end
 
-function ui_rect_new(x,y,w,h,parent)
+function ui_rect:set_rect(x,y,w,h)
+	self.x,self.y = x or self.x,y or self.y
+	self.w,self.h = w or self.w,h or self.h
+	return self
+end
+
+function ui_rect_new_with_proxy_components(x,y,w,h,parent, ...)
+	local self = ui_rect_new(x,y,w,h,parent)
+	self:add_component_proxy(...)
+	return self
+end
+
+function ui_rect_new(x,y,w,h,parent, ...)
 	local self = ui_rect.new {
 		x=x,y=y,w=w,h=h,
 		flags = {},
@@ -247,6 +270,7 @@ function ui_rect_new(x,y,w,h,parent)
 	if parent then
 		self:set_parent(parent)
 	end
+	self:add_component(...)
 	return self
 end
 

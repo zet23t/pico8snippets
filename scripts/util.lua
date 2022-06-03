@@ -46,7 +46,7 @@ end
 
 function concat(m, s,...)
 	s = tostr(s)
-	return s and ... and (s..m..concat(m,...)) or s or ""
+	return s and ... and (s..m..concat(m,...)) or s
 end
 
 function printc(...)
@@ -105,4 +105,9 @@ function text_width(s)
 		end
 	end
 	return w - 1
+end
+
+function wrap_and_repeat(fn)
+	local function f(...) fn(...) return f end
+	return f
 end

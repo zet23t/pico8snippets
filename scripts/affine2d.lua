@@ -26,7 +26,7 @@ end
 
 function m33_offsetted(m,x,y)
 	local cp = m33new {unpack(m)}
-	cp[5] = cp[5] + x
-	cp[6] = cp[6] + y
+	cp[5] += x
+	cp[6] += y
 	return cp
 end

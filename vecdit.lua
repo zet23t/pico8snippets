@@ -73,6 +73,10 @@ function load_file(file)
 	update_title()
 end
 
+function save_file()
+	save_cartsprites(cartfile)
+end
+
 selected_triangles = {}
 undo_step = 0
 undo_list = {}
@@ -114,6 +118,7 @@ function set_current_mesh_data(mesh)
 		local row=mesh.columns[t]
 		mesh_set_xy(t,0,unpack(row))
 	end
+	update_title()
 end
 
 function _init()
@@ -196,7 +201,7 @@ function _init()
 				main_renderer.line = lines
 			end,
 			draw = function(self, ui_rect)
-				local x,y = ui_rect:to_world(0,0)
+				local x,y = ui_rect:to_world()
 				local id = main_renderer.bg == bg and 11 or 10
 				spr(id,x+2,y)
 			end
@@ -214,7 +219,7 @@ function _init()
 					return m
 				end,
 			},
-			save_2_6 = function() printh("save") end,
+			save_2_6 = function() save_file() end,
 		},
 		edit_2 = {
 			copy_1 = function() printh("Settings") end,
@@ -238,8 +243,7 @@ function _init()
 				fillp(0b0101101001011010.1)
 				for i=1,#selected_triangles do
 					local t = selected_triangles[i]
-					local x1,y1,x2,y2,x3,y3 = xys_add(x,y,multiply_all(scale,triangle_get(t)))
-					tfill(x1,y1,x2,y2,x3,y3,c,c)
+					tfill(c,c,nil,xys_add(x,y,multiply_all(scale,triangle_get(t))))
 					--lines(c+7,true,)
 				end
 				fillp()
@@ -248,10 +252,8 @@ function _init()
 
 		local tool_mode = {highlighted_points = {}}
 		function tool_mode.draw(cmp,ui_rect)
-			-- mx, my = ui_rect:to_world(mx, my)
-			-- circfill(mx,my,2,4)
-			local x,y = ui_rect:to_world(0,0)
-			local m33 = m33_offsetted(main_renderer_mesh_component.matrix, x,y)
+			local x,y = ui_rect:to_world()
+			local m33 = m33_offsetted(main_renderer_mesh_component.matrix, x+1,y+1)
 			local highlighted_tris = tool_mode_move.highlighted_tris or {}
 			draw_highlighted_tris(
 				#highlighted_tris == 0 and selected_triangles or highlighted_tris, flr_all(x+scale*.5,y+scale*.5))
@@ -259,12 +261,12 @@ function _init()
 			for i=1,#tool_mode_move.highlighted_points do
 				local t,i = unpack(tool_mode_move.highlighted_points[i])
 				local x,y = m33:mulxy(mesh_get_xy(t,i))
-				circfill(x+1,y+1,2,9)
+				circfill(x,y,2,9)
 			end
 			
 			for t=0,7 do
 				if (#selected_triangles==0 or tab_contains(selected_triangles,t)) and mesh_is_valid(t) then
-					local x1,y1,x2,y2,x3,y3 = xys_add(1,1,m33:mulxy(mesh_get_xy(t,0,1,2)))
+					local x1,y1,x2,y2,x3,y3 = m33:mulxy(mesh_get_xy(t,0,1,2))
 					circ(x1,y1,2,8)
 					circ(x2,y2,2,8)
 					circ(x3,y3,2,8)
@@ -272,12 +274,13 @@ function _init()
 			end
 		end
 		
-		tool_mode_select = proxy_instance(tool_mode)
-		tool_mode_move = proxy_instance(tool_mode)
-		tool_mode_rotate = proxy_instance(tool_mode)
-		tool_mode_add = proxy_instance(tool_mode)
-		tool_mode_remove = proxy_instance(tool_mode)
-		tool_mode_colorize = proxy_instance(tool_mode)
+		tool_mode_select,
+		tool_mode_move,
+		tool_mode_rotate,
+		tool_mode_add,
+		tool_mode_remove,
+		tool_mode_colorize = proxy_instance(tool_mode, tool_mode,
+			tool_mode,tool_mode,tool_mode,tool_mode)
 
 		local function get_points(mx,my)
 			local lx,ly = ceil_all(mx / scale, my / scale)
@@ -314,7 +317,7 @@ function _init()
 			--selected_triangles
 			local high = tool_mode_select.highlighted_tris
 			if not high then return end
-			local x,y = flr_all(xys_add(scale*.5,scale*.5, ui_rect:to_world(0,0)))
+			local x,y = flr_all(xys_add(scale*.5,scale*.5, ui_rect:to_world()))
 
 			draw_highlighted_tris(selected_triangles, x,y)
 
@@ -588,40 +591,46 @@ function _init()
 	local tabs_view = ui_rect_new(97,0,30,72,editor_content)
 	tabs_view:add_component(sprite9_component_new(72,0,8,8,3,3,3,3))
 	local tabs_content = ui_rect_new(0,0,0,0,tabs_view)
-	tabs_content:add_component(parent_size_matcher_component_new(1,1,1,1))
+	tabs_content:add_component(parent_size_matcher_component_new(1,6,6,1))
 	tabs_content:add_component(clip_component_new())
 	local tab_lib_content = ui_rect_new(0,0,128,64,tabs_content)
 	tab_lib_content:add_component{
 		draw = function(self, ui_rect)
 			--
 			palt(0,false)
-			local x, y = ui_rect:to_world(0,0)
+			local x, y = ui_rect:to_world()
 			local mx,my = self.cell_x, self.cell_y
 			for sy=0,15 do
 				memcpy(64*32, 0x4300 + sy * 64 * 8,64*8)
 				for sx=0,15 do
-					local tx, ty = x+sx*5,y+sy*5
+					local tx, ty = x+sx*9,y+sy*9
 					local rcol = 
 						(mx == sx and my == sy and 9) or
 						(mesh_x == sx * 8 and mesh_y == sy * 8 and 8)
 						
 					if rcol then
-						rect(tx, ty, tx+5,ty+5,rcol)
+						rect(tx, ty, tx+9,ty+9,rcol)
 					end
-					sspr(sx * 8,32,8,8,tx+1,ty+1, 4, 4)
+					sspr(sx * 8,32,8,8,tx+1,ty+1, 8, 8)
 				end
 			end
 
 			palt(0,true)
 		end,
 		is_mouse_over = function(self, ui_rect, mx, my)
-			self.cell_x, self.cell_y = clamp(0,16,flr_all(multiply_all(1/5, mx, my)))
+			self.cell_x, self.cell_y = clamp(0,16,flr_all(multiply_all(1/9, mx, my)))
 		end,
 		was_triggered = function(self, ui_rect, mx, my)
 			mesh_x, mesh_y = self.cell_x * 8, self.cell_y * 8
 			main_renderer_mesh_component:set_mesh(mesh_x, mesh_y)
+			update_title()
 		end
 	}
+	ui_rect_new(1,66,23,5,tabs_view,
+		 scrollbar_component_new(1,rectfill_component_new(5),button_skin,button_skin,sprite_component_new(33,1,1),sprite_component_new(34,1,1)))
+	ui_rect_new(24,1,5,65,tabs_view,
+		 scrollbar_component_new(2,rectfill_component_new(5),button_skin,button_skin,sprite_component_new(35,1,1),sprite_component_new(36,1,1)))
+	--bar:add_component(proxy_instance(button_skin))
 	do
 		local x = 0
 		for tab in all {
@@ -654,7 +663,7 @@ function _init()
 		bg = 0, line = 1, highlighted_line = 2
 	}
 	function main_renderer:draw(ui_rect)
-		local x,y = ui_rect:to_world(0,0)
+		local x,y = ui_rect:to_world()
 		local w,h = ui_rect.w, ui_rect.h
 		local q = scale * .5
 		rectfill(x,y,x+w,y+h,self.bg)
