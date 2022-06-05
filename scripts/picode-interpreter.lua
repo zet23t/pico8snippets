@@ -42,12 +42,17 @@ do
 end
 
 op_vals = {
-	[op_push_str] = 2,
+	[op_push_str] = function(addr)
+		local str = peek_str(peek2(addr + 1))
+		printh("   "..(addr+1)..": "..str)
+		return addr + 2
+	end,
 	[op_push_num] = 4,
 	[op_val] = 1,
 	[op_var] = 1,
 	[op_set_globals] = 1,
-	[op_and] = 2
+	[op_and] = 2,
+	[op_or] = 2,
 }
 
 function peek_str(addr)
@@ -73,10 +78,15 @@ function dump(addr)
 	if op == op_exit then
 		return
 	end
-	if op_vals[op] then
-		for i=1,op_vals[op] do
-			addr += 1
-			printh("    "..addr..": "..peek(addr))
+	local n = op_vals[op]
+	if n then
+		if type(n) == "function" then
+			addr = n(addr)
+		else
+			for i=1,n do
+				addr += 1
+				printh("    "..addr..": "..peek(addr))
+			end
 		end
 	end
 	addr += 1
@@ -212,6 +222,14 @@ function load(addr)
 				addr += 3
 			else
 				addr = peek2(addr + 1)
+			end
+		end,
+		[op_or] = function()
+			if stack_get(-1) then
+				addr = peek2(addr + 1)
+			else
+				stack_pop(1)
+				addr += 3
 			end
 		end,
 		[op_add] = function()

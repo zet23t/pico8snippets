@@ -94,6 +94,13 @@ test
 (nil, "a = true and true", {a = true})
 (nil, "a = 1 and 2", {a = 1 and 2})
 (nil, "a = 1 and false", {a = 1 and false})
+(nil, "a = 1 and 2 and 3", {a = 3})
+(nil, "a = false or 3", {a = 3})
+(nil, "a = true and 1 or 2", {a = 1})
+(nil, "a = false and 1 or 2", {a = 2})
+(nil, "a = false and 1 or true and 2 or 3", {a = 2})
+(nil, "a = f() and 2", {a = 2}, {f=function() return 1 end})
+(nil, "a = 2 and f()", {a = 1}, {f=function() return 1 end})
 
 
 

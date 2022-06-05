@@ -260,15 +260,17 @@ function picode_compile(code, mem_writer)
 				function()
 					mem_writer:op(op_mapping[next])
 				end)
-		elseif next == "and" then
+		elseif next == "and" or next == "or" then
 			next_token()
 			if call then
 				call()
 				call = nil
 			end
-			local symbol = mem_writer:op(op_and):num2symbol()
-			parse_expression(bcnt, 0)
-			mem_writer:num2symbol(symbol)
+			local symbol = mem_writer:op(next == "and" and op_and or op_or):num2symbol()
+			parse_expression(bcnt, 0,
+				function()
+					mem_writer:num2symbol(symbol)
+				end)
 		end
 		
 		if call then
