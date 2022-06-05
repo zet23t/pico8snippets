@@ -11,7 +11,8 @@ op_push_value = 7
 op_get_table = 11
 op_set_table = 12
 op_get_global = 13
-op_set_global = 14
+op_set_globals = 14
+op_var = 15
 
 op_add = 20
 op_sub = 21
@@ -26,22 +27,27 @@ op_not = 32
 
 op_call_start = 40
 op_call = 41
+op_call_r1 = 42
+op_val = 43
 
 op_debug = 255
 
 index_global = -9999
 
 ops = {}
-for i,op in ipairs(split [[op_exit,op_push_table,op_push_str,op_push_num,op_push_true,op_push_false,op_push_nil,op_push_value,op_get_table,op_set_table,op_get_global,op_set_global,op_add,op_sub,op_mul,op_div,op_pow,op_mod,op_and,op_or,op_not,op_call_start,op_call,op_debug]]) 
+for i,op in ipairs(split [[op_exit,op_push_table,op_push_str,op_push_num,op_push_true,op_push_false,op_push_nil,op_push_value,op_get_table,op_set_table,op_get_global,op_set_globals,op_add,op_sub,op_mul,op_div,op_pow,op_mod,op_and,op_or,op_not,op_call_start,op_call,op_call_r1,op_val,op_debug,op_var]]) 
 do 
 	ops[op] = _ENV[op] 
 	ops[_ENV[op]] = op
 end
 
-op_args = {
+op_vals = {
 	[op_push_str] = 2,
 	[op_push_num] = 4,
-	
+	[op_val] = 1,
+	[op_var] = 1,
+	[op_set_globals] = 1,
+	[op_and] = 2
 }
 
 function peek_str(addr)
@@ -53,7 +59,12 @@ function peek_str(addr)
 	str..=chr(byte)
 	goto next
 end
-
+function print_stack(stack)
+	printh "==== STACK ===="
+	for i=1,#stack do
+		printh(i..": "..tostr(stack[i][1]))
+	end
+end
 function dump(addr)
 	printh("Dumping "..addr)
 	::cont::
@@ -62,10 +73,10 @@ function dump(addr)
 	if op == op_exit then
 		return
 	end
-	if op_args[op] then
-		for i=1,op_args[op] do
-			printh("    "..addr..": "..peek(addr))
+	if op_vals[op] then
+		for i=1,op_vals[op] do
 			addr += 1
+			printh("    "..addr..": "..peek(addr))
 		end
 	end
 	addr += 1
@@ -76,6 +87,7 @@ function load(addr)
 	local vm = {
 		vars = {},
 		stack = {},
+		assignmentvars = {},
 		code = addr,
 		pos = addr
 	}
@@ -93,6 +105,7 @@ function load(addr)
 
 	local function stack_push(...)
 		for i=1,select('#',...) do
+			-- printh("PUSH "..i..": "..tostr(select(i,...))..trace())
 			add(vm.stack, {select(i,...)})
 		end
 	end
@@ -113,18 +126,8 @@ function load(addr)
 	end
 	local call_starter = {}
 
-	local op_act = {
-		[op_push_table] = push_fcall(function()return{}end),
-		[op_push_false] = push_literal(false),
-		[op_push_true] = push_literal(true),
-		[op_push_nil] = push_literal(nil),
-		[op_push_str] = push_fcall(function()return peek_str(peek2(addr+1))end,3),
-		[op_push_num] = push_fcall(function()return peek4(addr+1)end,5),
-		[op_call_start] = function() 
-			stack_push(call_starter)
-			addr +=1
-		end,
-		[op_call] = function() 
+	local function op_call_handle(truncate)
+		return function() 
 			local p = #vm.stack
 			local n = 0
 			while p > 0 and vm.stack[p][1] ~= call_starter do
@@ -133,9 +136,33 @@ function load(addr)
 			end
 			deli(vm.stack, p)
 			local f = deli(vm.stack, p - 1)[1]
-			stack_push(f(stack_pop(n)))
-			addr +=1 end,
+			if truncate then
+				stack_push((f(stack_pop(n))))
+			else
+				stack_push(f(stack_pop(n)))
+			end
+			addr +=1 
+		end
+	end
+	local op_act = {
+		[op_push_table] = push_fcall(function()return{}end),
+		[op_push_false] = push_literal(false),
+		[op_push_true] = push_literal(true),
+		[op_push_nil] = push_literal(nil),
+		[op_push_str] = push_fcall(function()return peek_str(peek2(addr+1))end,3),
+		[op_push_num] = push_fcall(function()
+					-- printh(" "..#vm.stack.." = "..peek4(addr+1))
+			return peek4(addr+1)end,5),
+		[op_call_start] = function() 
+			stack_push(call_starter)
+			addr +=1
+		end,
+		[op_call_r1] = op_call_handle(true),
+		[op_call] = op_call_handle(),
 		[op_get_global] = function()
+			-- local v = stack_get(-1)
+			-- printh("_ENV["..tostr(v).."] = "..
+			-- 	tostr(_ENV[v]))
 			stack_push(_ENV[stack_pop(1)])
 			addr += 1
 		end,
@@ -149,10 +176,43 @@ function load(addr)
 				stack_get(dst)[k] = v
 			end
 		end,
-		[op_set_global] = function()
-			local k, v = stack_pop(2)
-			_ENV[k] = v
-			addr += 1
+		[op_val] = function()
+			local vnum = peek(addr + 1)
+			vm.assignmentvars[vnum].from = #vm.stack + 1
+			addr += 2
+		end,
+		[op_var] = function()
+			local vnum = peek(addr + 1)
+			vm.assignmentvars[vnum] = {target = stack_pop(1)}
+			addr +=2
+		end,
+		[op_set_globals] = function()
+			-- print_stack(vm.stack)
+			local globals = peek(addr + 1)
+			addr += 2
+			local last = vm.assignmentvars[1].from
+			for i=1,#vm.assignmentvars do
+				local info = vm.assignmentvars[i]
+				if not last then
+					_ENV[info.target] = nil
+				elseif info.from then
+					last = info.from
+					_ENV[info.target] = last <= #vm.stack and stack_get(last)
+					-- printh(" "..info.target.." = "..last.." - "..tostr(stack_get(1)))
+				else
+					last += 1
+					_ENV[info.target] = last <= #vm.stack and stack_get(last)
+				end
+			end
+			-- printh(i..": "..tostr(info.target).." "..info.from)
+		end,
+		[op_and] = function()
+			if stack_get(-1) then
+				stack_pop(1)
+				addr += 3
+			else
+				addr = peek2(addr + 1)
+			end
 		end,
 		[op_add] = function()
 			local k, v = stack_pop(2)
@@ -197,7 +257,7 @@ function load(addr)
 
 	return function(...)
 		for i=1,select('#',...) do
-			stack_push(select(i),...)
+			stack_push(select(i,...))
 		end
 		::cont::
 		local op = peek(addr)

@@ -25,6 +25,11 @@ function mem_writer:num(n)
 	self.pos += 4
 	return self
 end
+function mem_writer:num1(n)
+	poke(self.pos,n)
+	self.pos += 1
+	return self
+end
 function mem_writer:num2(n)
 	poke2(self.pos, n)
 	self.pos += 2
@@ -57,8 +62,24 @@ end
 function mem_writer:op_get_global()
 	return self:op(op_get_global)
 end
-function mem_writer:op_set_global(n)
-	return self:op(op_set_global)
+function mem_writer:op_set_globals(n)
+	return self:op(op_set_globals):num1(n)
+end
+function mem_writer:op_val(n)
+	return self:op(op_val):num1(n)
+end
+function mem_writer:op_var(n)
+	return self:op(op_var):num1(n)
+end
+function mem_writer:num2symbol(s)
+	if s then
+		poke2(s, self.pos)
+		return self
+	end
+	
+	local pos = self.pos
+	self:num2(0)
+	return pos
 end
 
 ------------------
@@ -212,7 +233,7 @@ function picode_compile(code, mem_writer)
 					error("unexpected: "..tostr(peek_token()))
 				end
 				next_token()
-				mem_writer:op(op_call)
+				mem_writer:op((peek_token() == ',' or bcnt > 0) and op_call_r1 or op_call)
 			end
 		end
 
@@ -239,6 +260,15 @@ function picode_compile(code, mem_writer)
 				function()
 					mem_writer:op(op_mapping[next])
 				end)
+		elseif next == "and" then
+			next_token()
+			if call then
+				call()
+				call = nil
+			end
+			local symbol = mem_writer:op(op_and):num2symbol()
+			parse_expression(bcnt, 0)
+			mem_writer:num2symbol(symbol)
 		end
 		
 		if call then
@@ -258,13 +288,38 @@ function picode_compile(code, mem_writer)
 			local op = next_token()
 			if op == '(' then
 				-- mem_writer:op_push_str(t):op(op_get_global):op(op_call_start)
-			elseif op == '=' then
-				mem_writer:op_push_str(t)
-				parse_expression(0)
-				mem_writer:op_set_global(-2)
+			elseif op == '=' or op == "," then
+				local var_count = 1
+				
+				mem_writer:op_push_str(t):op_var(1)
+				while op == "," do
+					t = next_token()
+					if not is_valid_name(t) then
+						error("valid name expected: "..t)
+					end
+					var_count = var_count + 1
+					mem_writer:op_push_str(t):op_var(var_count)
+					op = next_token()
+				end
+				if op ~= '=' then
+					error("expected =, found "..op)
+				end
+				local has_next = true
+				local arg = 1
+				while 1 do
+					mem_writer:op_val(arg)
+					arg += 1
+					parse_expression(0)
+					if peek_token() == "," then
+						next_token()
+					else
+						break
+					end
+				end
+				mem_writer:op_set_globals(var_count)
 				-- mem_writer:op_push_str(t):op(op_)
 			else
-				error("unexpected op: "..t)
+				error("unexpected op: "..op)
 			end
 		end
 		return parse_statement()
