@@ -14,6 +14,9 @@ op_get_global = 13
 op_set_globals = 14
 op_var = 15
 
+op_next_table_value = 16
+op_table_assign = 17
+
 op_add = 20
 op_sub = 21
 op_mul = 22
@@ -30,12 +33,28 @@ op_call = 41
 op_call_r1 = 42
 op_val = 43
 
+op_jmp_cnd = 50
+op_jmp = 51
+op_cnd_check = 52
+
+op_lt = 60
+op_gt = 61
+op_gte = 62
+op_lte = 63
+op_eq = 64
+op_neq = 65
+
 op_debug = 255
 
 index_global = -9999
 
 ops = {}
-for i,op in ipairs(split [[op_exit,op_push_table,op_push_str,op_push_num,op_push_true,op_push_false,op_push_nil,op_push_value,op_get_table,op_set_table,op_get_global,op_set_globals,op_add,op_sub,op_mul,op_div,op_pow,op_mod,op_and,op_or,op_not,op_call_start,op_call,op_call_r1,op_val,op_debug,op_var]]) 
+for i,op in ipairs(split (
+	"op_exit,op_push_table,op_push_str,op_push_num,op_push_true,op_push_false,"..
+	"op_push_nil,op_push_value,op_get_table,op_set_table,op_get_global,"..
+	"op_set_globals,op_add,op_sub,op_mul,op_div,op_pow,op_mod,op_and,op_or,"..
+	"op_not,op_call_start,op_call,op_call_r1,op_val,op_debug,op_var,op_jmp_cnd,"..
+	"op_jmp,op_cnd_check,op_next_table_value,op_table_assign")) 
 do 
 	ops[op] = _ENV[op] 
 	ops[_ENV[op]] = op
@@ -52,7 +71,9 @@ op_vals = {
 	[op_var] = 1,
 	[op_set_globals] = 1,
 	[op_and] = 2,
-	[op_or] = 2,
+	[op_jmp_cnd] = 2,
+	[op_jmp] = 2,
+	[op_next_table_value] = 2,
 }
 
 function peek_str(addr)
@@ -98,6 +119,8 @@ function load(addr)
 		vars = {},
 		stack = {},
 		assignmentvars = {},
+		table_assign = {},
+		cnd_check = {},
 		code = addr,
 		pos = addr
 	}
@@ -163,12 +186,43 @@ function load(addr)
 		[op_push_num] = push_fcall(function()
 					-- printh(" "..#vm.stack.." = "..peek4(addr+1))
 			return peek4(addr+1)end,5),
+		[op_next_table_value] = function()
+			add(vm.table_assign,{peek2(addr+1), #vm.stack, stack_get(-1)})
+			addr += 3
+		end,
+		[op_table_assign] = function()
+			local index, stack_pos, tab = unpack(deli(vm.table_assign, #vm.table_assign))
+			
+			if index == 0 then
+				local k,v = stack_pop(#vm.stack - stack_pos)
+				tab[k] = v
+			else
+				tab[index] = stack_pop(#vm.stack - stack_pos)
+			end
+			addr += 1
+		end,
 		[op_call_start] = function() 
 			stack_push(call_starter)
 			addr +=1
 		end,
 		[op_call_r1] = op_call_handle(true),
 		[op_call] = op_call_handle(),
+		[op_jmp] = function()
+			addr = peek2(addr+1)
+		end,
+		[op_jmp_cnd] = function()
+			local jmp = peek2(addr+1)
+			add(vm.cnd_check, {#vm.stack, jmp})
+			addr += 3
+		end,
+		[op_cnd_check] = function()
+			local stack_pos,jmp = unpack(deli(vm.cnd_check, #vm.cnd_check))
+			if not stack_pop(#vm.stack - stack_pos) then
+				addr = jmp
+			else
+				addr += 1
+			end
+		end,
 		[op_get_global] = function()
 			-- local v = stack_get(-1)
 			-- printh("_ENV["..tostr(v).."] = "..
@@ -214,6 +268,7 @@ function load(addr)
 					_ENV[info.target] = last <= #vm.stack and stack_get(last)
 				end
 			end
+			vm.assignmentvars = {}
 			-- printh(i..": "..tostr(info.target).." "..info.from)
 		end,
 		[op_and] = function()
@@ -231,6 +286,36 @@ function load(addr)
 				stack_pop(1)
 				addr += 3
 			end
+		end,
+		[op_lt] = function()
+			local k, v = stack_pop(2)
+			stack_push(k < v)
+			addr += 1
+		end,
+		[op_gt] = function()
+			local k, v = stack_pop(2)
+			stack_push(k > v)
+			addr += 1
+		end,
+		[op_lte] = function()
+			local k, v = stack_pop(2)
+			stack_push(k <= v)
+			addr += 1
+		end,
+		[op_gte] = function()
+			local k, v = stack_pop(2)
+			stack_push(k >= v)
+			addr += 1
+		end,
+		[op_eq] = function()
+			local k, v = stack_pop(2)
+			stack_push(k == v)
+			addr += 1
+		end,
+		[op_neq] = function()
+			local k, v = stack_pop(2)
+			stack_push(k ~= v)
+			addr += 1
 		end,
 		[op_add] = function()
 			local k, v = stack_pop(2)

@@ -71,9 +71,9 @@ end
 function mem_writer:op_var(n)
 	return self:op(op_var):num1(n)
 end
-function mem_writer:num2symbol(s)
+function mem_writer:num2symbol(s,rel)
 	if s then
-		poke2(s, self.pos)
+		poke2(s, self.pos + (rel or 0))
 		return self
 	end
 	
@@ -93,6 +93,12 @@ local op_mapping = {
 	["/"] = op_div,
 	["%"] = op_mod,
 	["^"] = op_pow,
+	["<"] = op_lt,
+	[">"] = op_gt,
+	[">="] = op_gte,
+	["<="] = op_lte,
+	["=="] = op_eq,
+	["~="] = op_neq,
 }
 local op_prio = {
 	["+"] = 1,
@@ -101,12 +107,18 @@ local op_prio = {
 	["/"] = 2,
 	["%"] = 2,
 	["^"] = 2,
+	[">"] = 0,
+	["<"] = 0,
+	["<="] = 0,
+	[">="] = 0,
+	["=="] = -1,
+	["~="] = -1,
 }
-for c in all(split ".,:,(,),\",\\,[,],{,},+,-,*,/,%,=,~=") do
+for c in all(split ".,:,(,),\",\\,[,],{,},+,-,*,/,%,=,==,~=,<,>,<=,>=") do
 	tokens[c] = c
 end
 for keywoord in all(split "and,or,not,true,false,if,then,else,elseif,end,do,while,for,in") do
-	tokens[keywoord] = keywoord
+	--tokens[keywoord] = keywoord
 	keywords[keywoord] = keywoord
 end
 
@@ -114,21 +126,33 @@ function picode_compile(code, mem_writer)
 	local function character(str, n) return chr(ord(str,n)) end
 	local pos = 1
 	local current_token
+	local function is_alpha(alpha,numeric, str,n)
+		if not str then return false end
+		local c = character(str,n)
+		return (alpha and c >= 'a' and c <='z') or 
+			(alpha and c >='A' and c <= 'Z') or 
+			(alpha and c == '_') or 
+			(numeric and c >= '0' and c <= '9')
+	end
+	local function skip_whitespaces()
+		while pos <= #code and ord(code, pos) <= 32 do pos+=1 end
+	end
 	local function next_token()
 		current_token = nil
-		while pos <= #code and ord(code, pos) <= 32 do pos+=1 end
+		skip_whitespaces()
 		if pos > #code then return end
 		local start = pos
-		local c = chr(ord(code,pos))
+		local c = character(code,pos)
 		
 		repeat
 			--local c = chr(ord(code,pos))
 			pos += 1
-			--color(5) print(sub(code,start,pos)) color(7)
+			-- color(5) print(sub(code,start,pos)) color(7)
 		until pos > #code or ord(code, pos) <= 32 
-			or tokens[character(code,pos)]
-			or tokens[sub(code,start,pos-1)]
+			or (tokens[character(code,pos)] and not tokens[sub(code,start,pos)]) 
+			or (tokens[sub(code,start,pos-1)] and not tokens[sub(code,start,pos)])
 		current_token = sub(code,start,pos - 1)
+
 		-- print("t: "..current_token.." @ "..pos)
 		return current_token
 	end
@@ -144,14 +168,6 @@ function picode_compile(code, mem_writer)
 	local function error(err)
 		err_msg = err
 		yield()
-	end
-	local function is_alpha(alpha,numeric, str,n)
-		if not str then return false end
-		local c = character(str,n)
-		return (alpha and c >= 'a' and c <='z') or 
-			(alpha and c >='A' and c <= 'Z') or 
-			(alpha and c == '_') or 
-			(numeric and c >= '0' and c <= '9')
 	end
 	local function is_valid_number(str)
 		for i=1,#str do 
@@ -172,9 +188,43 @@ function picode_compile(code, mem_writer)
 		end
 		return true
 	end
-	local function parse_expression(bcnt, prio, call)
+	local parse_expression
+	function parse_expression(bcnt, prio, call,is_args,is_table)
+		skip_whitespaces()
 		local pstart = pos
 		local t = next_token()
+		if t == "{" then
+			mem_writer:op(op_push_table)
+			local n = 1
+			while peek_token() ~= "}" do
+				--print("T! "..current_token)
+				local key,assign = peek_token(), peek_token(2)
+				if assign == "=" then
+					if not is_valid_name(key) then
+						error("invalid table key: "..key)
+					end
+					mem_writer:op(op_next_table_value):num2(0)
+					mem_writer:op_push_str(next_token())
+					next_token()
+				else
+					mem_writer:op(op_next_table_value):num2(n)
+					n = n + 1
+				end
+				
+				parse_expression(bcnt, prio, call, false, true)
+				mem_writer:op(op_table_assign)
+
+				if peek_token() == "," then
+					next_token()
+				end
+			end
+			next_token()
+			--printh(">>> "..trace())
+			return
+		end
+		if t == "}" and is_table then 
+			return 
+		end
 		if t == ")" and bcnt == 0 then
 			pos = pstart
 			return
@@ -186,7 +236,7 @@ function picode_compile(code, mem_writer)
 			t = next_token()
 		end
 		if t == "(" then
-			return parse_expression(bcnt + 1, 0, call)
+			return parse_expression(bcnt + 1, 0, call, false)
 		end
 		
 		if t == "true" then
@@ -201,7 +251,8 @@ function picode_compile(code, mem_writer)
 					next_token()
 				end
 			end
-			local str = sub(code,pstart+2,pos-2)
+			local str = sub(code,pstart+1,pos-2)
+			-- printh("-> "..str.." - "..t.." - "..trace())
 			mem_writer:op_push_str(str)
 		elseif is_valid_number(t) then
 			if peek_token() == "." and is_valid_number(peek_token(2)) then
@@ -225,7 +276,7 @@ function picode_compile(code, mem_writer)
 				mem_writer:op(op_call_start)
 				::next_arg::
 				next_token()
-				parse_expression(0)
+				parse_expression(0,0,nil,true)
 				if peek_token() == "," then
 					goto next_arg
 				end
@@ -238,6 +289,7 @@ function picode_compile(code, mem_writer)
 		end
 
 		local next = peek_token()
+		-- printh("::"..tostr(next).."::")
 		while next == ")" and bcnt > 0 do
 			bcnt -= 1
 			if call then
@@ -248,6 +300,13 @@ function picode_compile(code, mem_writer)
 			next = peek_token()
 		end
 		if next == ',' and bcnt == 0 then
+			if is_table then
+				return
+			end
+			if not is_args then
+				printh(trace())
+				error("unexpected ,")
+			end
 			if call then call() end
 			return 
 		elseif op_mapping[next] then
@@ -259,7 +318,7 @@ function picode_compile(code, mem_writer)
 			parse_expression(bcnt, op_prio[next],
 				function()
 					mem_writer:op(op_mapping[next])
-				end)
+				end,is_args)
 		elseif next == "and" or next == "or" then
 			next_token()
 			if call then
@@ -277,11 +336,46 @@ function picode_compile(code, mem_writer)
 			call()
 		end
 	end
-	local function parse_statement()
+	local function expected(expected, found)
+		if expected ~= found then
+			error("expected "..expected..", found "..found)
+		end
+	end
+	local function parse_statement(parse_until)
 		local start = pos
 		local t = next_token()
 		if not t then return true end
-		if tokens[t] then
+		if parse_until[t] then
+			return
+		end
+		if t == "if" then
+			local finals = {}
+			::check_expression::
+			local symbol = mem_writer:op(op_jmp_cnd):num2symbol()
+			parse_expression(0, 0, nil, false)
+			mem_writer:op(op_cnd_check)
+			expected("then", next_token())
+			::rep::
+			if parse_statement{["end"]=true,["else"]=true,["elseif"] = true} then
+				error "expected end, found eof"
+			end
+			if current_token == "else" or current_token == "elseif" then
+				add(finals, mem_writer:op(op_jmp):num2symbol())
+				mem_writer:num2symbol(symbol)
+				-- printh("==> "..current_token.." - "..tostr(symbol).." "..mem_writer.pos.."\n"..trace())
+				symbol = nil
+				if current_token == "elseif" then
+					goto check_expression
+				else
+					goto rep
+				end
+			elseif symbol then
+				mem_writer:num2symbol(symbol)
+			end
+			for s in all(finals) do mem_writer:num2symbol(s) end
+
+		elseif tokens[t] then
+			-- printh(tostr(parse_until).." -- "..trace())
 			error("unexpected token: "..t)
 		else
 			if not is_valid_name(t) then
@@ -311,7 +405,7 @@ function picode_compile(code, mem_writer)
 				while 1 do
 					mem_writer:op_val(arg)
 					arg += 1
-					parse_expression(0)
+					parse_expression(0,0,nil,true)
 					if peek_token() == "," then
 						next_token()
 					else
@@ -324,11 +418,12 @@ function picode_compile(code, mem_writer)
 				error("unexpected op: "..op)
 			end
 		end
-		return parse_statement()
+		return parse_statement(parse_until)
 	end
 	local parser = cocreate(parse_statement)
-	local suc, err = coresume(parser)
+	local suc, err = coresume(parser,{})
 	if err and not suc then
+		printh(trace(parser,err))
 		stop(trace(parser,err))
 	elseif err_msg then
 		printh(trace(parser,err_msg))
