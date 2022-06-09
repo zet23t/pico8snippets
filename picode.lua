@@ -71,7 +71,8 @@ function test(code,expected_values,init_values)
 	end
 	if err then
 		dump(code_addr)
-		print("error - "..name.." see logs")
+		color(8)
+		print("error:\n"..name.."\nsee logs")
 		stop()
 	end
 	code_addr += jump
@@ -155,9 +156,11 @@ test("x = {}",{x={}})
 ('x = {1,"hi"}',{x={1,"hi"}})
 ('x = {k=true,k2 = false}',{x={k=true,k2 = false}})
 ('x = {1,k=true,k2 = false,2}',{x={1,k=true,k2 = false,2}})
-
+('local x = 0 a = x x = 1 b = x', {a = 0, b = 1, x = false}, {x=false})
+('local x,y = 0,1 a,b = x,y', {a = 0, b = 1, x = false}, {x=false})
 --[[ 
 missing features
+- local variables
 - table access
 - function declaration
 - function calling as statement
