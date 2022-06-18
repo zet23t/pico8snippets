@@ -56,9 +56,6 @@ end
 function mem_writer:op_push_num(n)
 	return self:op(op_push_num):num(n)
 end
-function mem_writer:op_get_table(n)
-	return self:op(op_get_table):num2(n)
-end
 function mem_writer:op_get_global()
 	return self:op(op_get_global)
 end
@@ -117,7 +114,7 @@ local op_prio = {
 for c in all(split ".,:,(,),\",\\,[,],{,},+,-,*,/,%,=,==,~=,<,>,<=,>=") do
 	tokens[c] = c
 end
-for keyword in all(split("and,or,not,true,false,if,then,else,elseif,end,do,while,for,in,local")) do
+for keyword in all(split("and,or,not,true,false,if,then,else,elseif,end,do,while,for,in,local,function")) do
 	--tokens[keyword] = keyword
 	keywords[keyword] = keyword
 end
@@ -163,6 +160,11 @@ function picode_compile(code, mem_writer)
 		end
 		pos = p
 		return t
+	end
+	local function is_next_token(t)
+		if peek_token() == t then
+			return next_token()
+		end
 	end
 	local err_msg 
 	local function error(err)
@@ -215,6 +217,7 @@ function picode_compile(code, mem_writer)
 		skip_whitespaces()
 		local pstart = pos
 		local t = next_token()
+		--print(pos..": "..t)
 		if t == "{" then
 			mem_writer:op(op_push_table)
 			local n = 1
@@ -293,6 +296,14 @@ function picode_compile(code, mem_writer)
 				mem_writer:op_push_str(t)
 				mem_writer:op_get_global()
 			end
+			while is_next_token "." do
+				local name = next_token()
+				if not is_valid_name(name) then
+					error("valid name expected, got "..name)
+				end
+				mem_writer:op_push_str(name)
+				mem_writer:op(op_get_table)
+			end
 			if unary == "not" then
 				mem_writer:op(op_not)
 			elseif unary == "-" then
@@ -363,14 +374,52 @@ function picode_compile(code, mem_writer)
 			call()
 		end
 	end
+	local function next_name()
+		local name = next_token()
+		if not is_valid_name(name) or keywords[name] then
+			error("invalid name: "..name)
+		end
+		return name
+	end
 	local function expected(expected, found)
 		if expected ~= found then
 			error("expected "..expected..", found "..found)
 		end
 	end
-	local function parse_statement(parse_until)
+	local parse_statement
+	local function parse_function(is_local, requires_name)
+		local name = next_name()
+		local scope, index = get_var_info(name)
+		if scope then
+			mem_writer:op_push_local(scope,index)
+		else
+			mem_writer:op_push_str(name)
+		end
+		mem_writer:op_var(1)
+		mem_writer:op_val(1)
+		while is_next_token "." do
+			local sub = next_name()
+			error "todo"
+		end 
+		if not is_next_token "(" then
+			expected("(", peek_token())
+		end
+		while not is_next_token ")" do
+			add_var(next_name())
+		end
+
+		local addr_f_start = mem_writer:op(op_push_function):num2symbol()
+		mem_writer:op_set_vars(1)
+		local addr_f_end = mem_writer:op(op_jmp):num2symbol()
+		mem_writer:num2symbol(addr_f_start)
+		parse_statement {["end"] = true}
+		mem_writer:op(op_return):num1(0)
+		mem_writer:num2symbol(addr_f_end)
+	end
+	function parse_statement(parse_until)
 		local start = pos
 		local t = next_token()
+		--print(t.." - "..pos)
 		if not t then return true end
 		if parse_until[t] then
 			return
@@ -400,6 +449,10 @@ function picode_compile(code, mem_writer)
 				mem_writer:num2symbol(symbol)
 			end
 			for s in all(finals) do mem_writer:num2symbol(s) end
+		elseif t == "function" then
+			parse_function(false, true)
+		elseif t == "local" and peek_token() == "function" then
+			parse_function(true, true)
 		elseif t == "local" then
 			local vars = {}
 			while 1 do
@@ -412,11 +465,15 @@ function picode_compile(code, mem_writer)
 				if next == "=" then
 					mem_writer:op(op_local)
 					next_token()
-					parse_expression(0,0,nil,true)
+					repeat
+						parse_expression(0,0,nil,true)
+					until peek_token() ~= "," or not next_token()
 					for name in all(vars) do
 						add_var(name)
 					end
+					-- printh("---"..trace())
 					mem_writer:op(op_assign_locals):num1(#vars)
+					-- next_token()
 					break
 				end
 				if next ~= ',' then
@@ -434,9 +491,10 @@ function picode_compile(code, mem_writer)
 			local op = next_token()
 			if op == '(' then
 				-- mem_writer:op_push_str(t):op(op_get_global):op(op_call_start)
-			elseif op == '=' or op == "," then
+				error "not implemented"
+			elseif op == '=' or op == "," or op == "." then
 				local var_count = 0
-				local function push_var(t)
+				local function push_var(t, op)
 					var_count += 1
 					local scope, index = get_var_info(t)
 					if scope then
@@ -446,17 +504,32 @@ function picode_compile(code, mem_writer)
 						-- print(t)
 						mem_writer:op_push_str(t)
 					end
+					
+					while op == "." or is_next_token "." do
+						if op then
+							mem_writer:op(op_get_global)
+						end
+						op = nil
+						local name = next_name()
+						mem_writer:op_push_str(name):op(op_get_table)
+					end
 					mem_writer:op_var(var_count)
+					return (op == "=" or op == ",") and op or next_token()
 				end
-				push_var(t)
+				op = push_var(t,op)
 
 				while op == "," do
 					t = next_token()
+					if t == "=" then 
+						op = t
+						break 
+					end
 					if not is_valid_name(t) then
 						error("valid name expected: "..t)
 					end
-					push_var(t)
-					op = next_token()
+					op = push_var(t, next_token())
+					
+					-- op = next_token()
 				end
 				if op ~= '=' then
 					error("expected =, found "..op)
@@ -467,6 +540,7 @@ function picode_compile(code, mem_writer)
 					mem_writer:op_val(arg)
 					arg += 1
 					parse_expression(0,0,nil,true)
+					-- todo shorten
 					if peek_token() == "," then
 						next_token()
 					else
