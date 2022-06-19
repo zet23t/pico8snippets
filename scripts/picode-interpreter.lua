@@ -32,9 +32,10 @@ op_not = 32
 
 op_call_start = 40
 op_call = 41
-op_call_r1 = 42
-op_val = 43
-op_return = 44
+op_call_r0 = 42
+op_call_r1 = 43
+op_val = 44
+op_return = 45
 
 op_jmp_cnd = 50
 op_jmp = 51
@@ -61,7 +62,7 @@ for i,op in ipairs(split (
 	"op_exit,op_push_table,op_push_str,op_push_num,op_push_true,op_push_false,op_push_function,"..
 	"op_push_nil,op_push_value,op_get_table,op_get_global,op_set_table,"..
 	"op_set_vars,op_add,op_sub,op_mul,op_div,op_pow,op_mod,op_and,op_or,"..
-	"op_not,op_call_start,op_call,op_call_r1,op_val,op_debug,op_var,op_jmp_cnd,op_return,"..
+	"op_not,op_call_start,op_call,op_call_r1,op_call_r0,op_val,op_debug,op_var,op_jmp_cnd,op_return,"..
 	"op_jmp,op_cnd_check,op_next_table_value,op_table_assign,op_local,op_assign_locals,op_push_local")) 
 do 
 	ops[op] = _ENV[op] 
@@ -96,12 +97,6 @@ function peek_str(addr)
 	addr += 1
 	str..=chr(byte)
 	goto next
-end
-function print_stack(stack)
-	printh "==== STACK ===="
-	for i=1,#stack do
-		printh(i..": "..tostr(stack[i][1]))
-	end
 end
 function dump(addr)
 	printh("Dumping "..addr)
@@ -159,6 +154,13 @@ function load(addr)
 		end
 		return v
 	end
+	
+	local function print_stack()
+		printh "==== STACK ===="
+		for i=1,#vm.stack do
+			printh(i..": "..serialize(stack_get(i)))
+		end
+	end
 	local function stack_pop_raw(n)
 		if n > 0 then
 			return deli(vm.stack,#vm.stack - n + 1), stack_pop_raw(n - 1)
@@ -213,9 +215,9 @@ function load(addr)
 			return addr
 		end
 	end
-	local call_starter = {}
+	local call_starter = {"call_starter"}
 
-	local function op_call_handle(truncate)
+	local function op_call_handle(truncate,no_ret)
 		return function(addr) 
 			local p = #vm.stack
 			local n = 0
@@ -223,9 +225,16 @@ function load(addr)
 				n += 1
 				p -= 1
 			end
+			-- printh(p.. " - "..n.." - "..tostr(#vm.stack > 0 and stack_get(-1)))
+			-- print_stack(vm.stack)
 			deli(vm.stack, p)
-			local f = deli(vm.stack, p - 1)[1]
-			if truncate then
+			local f = stack_get(p-1)-- assert(deli(vm.stack, p - 1)[1])
+			deli(vm.stack,p-1)
+			-- printh(trace())
+			if no_ret then
+				-- printh "no_ret"
+				f(stack_pop(n))
+			elseif truncate then
 				stack_push((f(stack_pop(n))))
 				-- print("1->"..#vm.stack)
 			else
@@ -277,8 +286,8 @@ function load(addr)
 					-- printh(" "..#vm.stack.." = "..peek4(addr+1))
 			return peek4(addr+1)end,5),
 		[op_push_local] = function(addr)
-			-- log("op_push_local "..peek(addr+1).." "..peek(addr+2))
 			stack_push_local(peek(addr+1),peek(addr+2))
+			--log(addr, "op_push_local "..peek(addr+1).." "..peek(addr+2).." "..tostr(stack_get(-1)))
 			return addr + 3
 		end,
 		[op_push_function] = function(addr)
@@ -331,6 +340,7 @@ function load(addr)
 			stack_push(call_starter)
 			return addr + 1
 		end,
+		[op_call_r0] = op_call_handle(true, true),
 		[op_call_r1] = op_call_handle(true),
 		[op_call] = op_call_handle(),
 		[op_jmp] = function(addr)
