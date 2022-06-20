@@ -114,7 +114,7 @@ local op_prio = {
 for c in all(split ".,:,(,),\",\\,[,],{,},+,-,*,/,%,=,==,~=,<,>,<=,>=") do
 	tokens[c] = c
 end
-for keyword in all(split("and,or,not,true,false,if,then,else,elseif,end,do,while,for,in,local,function")) do
+for keyword in all(split("and,or,not,true,false,if,then,else,elseif,end,do,while,for,in,local,function,return")) do
 	--tokens[keyword] = keyword
 	keywords[keyword] = keyword
 end
@@ -168,7 +168,13 @@ function picode_compile(code, mem_writer)
 	end
 	local err_msg 
 	local function error(err)
-		err_msg = err
+		local line = 0
+		for i=1,pos do
+			if ord(code,i) == ord "\n" then 
+				line += 1 
+			end
+		end
+		err_msg = line..": "..err
 		yield()
 	end
 	local function is_valid_number(str)
@@ -224,8 +230,10 @@ function picode_compile(code, mem_writer)
 			error("unexpected: "..tostr(peek_token()))
 		end
 		next_token()
-		mem_writer:op(is_statement and op_call_r0 or (peek_token() == ',' or bcnt > 0) and op_call_r1 or op_call)
-		if is_statement then mem_writer:op() end
+		mem_writer:op(is_statement and op_call_r0 or (peek_token() and op_mapping[peek_token()] or peek_token() == "," or bcnt > 0) and op_call_r1 or op_call)
+		if is_statement then 
+			--mem_writer:op()
+		end
 	end
 	function parse_expression(bcnt, prio, call,is_args,is_table)
 		skip_whitespaces()
@@ -411,17 +419,20 @@ function picode_compile(code, mem_writer)
 			expected("(", peek_token())
 		end
 		push_scope()
+		local arg_count = 0
 		while not is_next_token ")" do
 			add_var(next_name())
+			arg_count += 1
 		end
 
 		local addr_f_start = mem_writer:op(op_push_function):num2symbol()
 		mem_writer:op_set_vars(1)
 		local addr_f_end = mem_writer:op(op_jmp):num2symbol()
 		mem_writer:num2symbol(addr_f_start)
+		mem_writer:op(op_assign_args):num1(arg_count)
 		parse_statement {["end"] = true}
 		pop_scope()
-		mem_writer:op(op_return):num1(0)
+		mem_writer:op(op_return_start):op(op_return)
 		mem_writer:num2symbol(addr_f_end)
 	end
 	function parse_statement(parse_until)
@@ -432,6 +443,7 @@ function picode_compile(code, mem_writer)
 		if parse_until[t] then
 			return
 		end
+		-- print(t)
 		if t == "if" then
 			local finals = {}
 			::check_expression::
@@ -489,6 +501,10 @@ function picode_compile(code, mem_writer)
 				end
 				next_token()
 			end
+		elseif t == "return" then
+			mem_writer:op(op_return_start)
+			parse_expression(0,0,nil,true)
+			mem_writer:op(op_return)
 		elseif tokens[t] or keywords[t] then
 			-- printh(tostr(parse_until).." -- "..trace())
 			error("unexpected token: "..t)
@@ -496,6 +512,7 @@ function picode_compile(code, mem_writer)
 			if not is_valid_name(t) then
 				error("not a valid name: "..t)
 			end
+			-- print(t)
 			local op = next_token()
 			if op == '(' then
 				-- mem_writer:op_push_str(t):op(op_get_global):op(op_call_start)
@@ -573,7 +590,7 @@ function picode_compile(code, mem_writer)
 				mem_writer:op_set_vars(var_count)
 				-- mem_writer:op_push_str(t):op(op_)
 			else
-				error("unexpected op: "..op)
+				error("unexpected op: "..op.." "..(peek_token() or ""))
 			end
 		end
 		return parse_statement(parse_until)
